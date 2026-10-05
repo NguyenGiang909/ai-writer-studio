@@ -2,6 +2,13 @@
 
 Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ trợ (thảo luận, mở rộng, kiểm tra continuity). **Tác giả là authority** — AI không được tự đổi Canon/prose; mọi gợi ý là bản nháp hoặc qua Review queue.
 
+## Git / GitHub
+
+- Repo: **public** `https://github.com/NguyenGiang909/ai-writer-studio` (branch `main`)
+- `gh` CLI đã cài + auth `NguyenGiang909` (scope đủ, kể cả `workflow`)
+- Seed truyện thật KHÔNG public: `seed_lac_hong*.py`, `seed_vinhthanh.py` trong `.gitignore`, file vẫn nằm local; repo chỉ có `seed_demo.py` (Vĩnh Thành rút gọn 15 chương)
+- Commit dùng identity inline `-c user.name/user.email` (không sửa git config)
+
 ## Stack & chạy dev
 
 - Backend: FastAPI + SQLAlchemy async + SQLite (`backend/writer.db`) + Alembic
