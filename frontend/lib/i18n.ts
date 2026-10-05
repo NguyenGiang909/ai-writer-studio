@@ -765,4 +765,12 @@ const EN: Record<string, string> = {
   "Lỗi lưu nhân vật": "Failed to save character",
   "Tạo nhân vật": "Create character",
   "Cập nhật nhân vật": "Update character",
+  // Bulk summarize first-run notice
+  "Trước khi chạy": "Before you start",
+  "{n} mục sẽ chạy lần lượt — mỗi mục ~1 phút với model thật, tổng khoảng {m} phút.": "{n} scopes run one by one — each takes ~1 minute with a real model, ~{m} minutes total.",
+  "Giữ tab này mở. Mỗi mục xong là lưu ngay — Dừng lúc nào cũng không mất phần đã chạy.": "Keep this tab open. Each scope saves as soon as it finishes — Stop anytime without losing what's done.",
+  "Lần sau chỉ chạy lại mục thiếu/cũ, không phải toàn bộ.": "Next runs only redo missing/stale scopes, not everything.",
+  "Đừng hỏi lại lần sau": "Don't ask again",
+  "Bắt đầu": "Start",
+  "Để sau": "Later",
 };

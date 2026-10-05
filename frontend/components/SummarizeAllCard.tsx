@@ -17,6 +17,8 @@ export default function SummarizeAllCard({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [cov, setCov] = useState<Coverage | null>(null);
   const [running, setRunning] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [skipAsk, setSkipAsk] = useState(false);
   const [idx, setIdx] = useState(0);
   const [cur, setCur] = useState("");
   const [fails, setFails] = useState(0);
@@ -35,6 +37,19 @@ export default function SummarizeAllCard({ projectId }: { projectId: string }) {
     const iv = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(iv);
   }, [running]);
+
+  function askStart() {
+    try {
+      if (localStorage.getItem("sumall-skip-confirm") === "1") { run(); return; }
+    } catch {}
+    setConfirming(true);
+  }
+
+  function confirmStart() {
+    try { if (skipAsk) localStorage.setItem("sumall-skip-confirm", "1"); } catch {}
+    setConfirming(false);
+    run();
+  }
 
   async function run() {
     const items = cov?.pending ?? [];
@@ -79,15 +94,33 @@ export default function SummarizeAllCard({ projectId }: { projectId: string }) {
   return (
     <section className="card">
       <h3>{t(lang, "Tóm tắt toàn bộ")}</h3>
-      {!running && pending > 0 && (
+      {!running && !confirming && pending > 0 && (
         <>
           <p className="subtle" style={{ fontSize: 13, marginTop: -6 }}>
             {t(lang, "{n} phạm vi còn thiếu hoặc đã cũ — chạy từ cảnh lên toàn truyện.", { n: pending })}
           </p>
-          <button className="btn primary" onClick={run}>
+          <button className="btn primary" onClick={askStart}>
             {t(lang, "Tóm tắt {n} mục", { n: pending })}
           </button>
         </>
+      )}
+      {!running && confirming && (
+        <div className="notice sum-confirm">
+          <b>{t(lang, "Trước khi chạy")}</b>
+          <ul>
+            <li>{t(lang, "{n} mục sẽ chạy lần lượt — mỗi mục ~1 phút với model thật, tổng khoảng {m} phút.", { n: pending, m: Math.max(1, Math.round(pending * 57 / 60)) })}</li>
+            <li>{t(lang, "Giữ tab này mở. Mỗi mục xong là lưu ngay — Dừng lúc nào cũng không mất phần đã chạy.")}</li>
+            <li>{t(lang, "Lần sau chỉ chạy lại mục thiếu/cũ, không phải toàn bộ.")}</li>
+          </ul>
+          <label className="sum-skip">
+            <input type="checkbox" checked={skipAsk} onChange={(e) => setSkipAsk(e.target.checked)} />
+            {t(lang, "Đừng hỏi lại lần sau")}
+          </label>
+          <div className="form-actions" style={{ marginTop: 10 }}>
+            <button className="btn primary" onClick={confirmStart}>{t(lang, "Bắt đầu")}</button>
+            <button className="btn ghost" onClick={() => setConfirming(false)}>{t(lang, "Để sau")}</button>
+          </div>
+        </div>
       )}
       {!running && pending === 0 && cov && (
         <p className="subtle" style={{ fontSize: 13, marginTop: -6 }}>
