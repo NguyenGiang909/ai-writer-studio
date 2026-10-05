@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Secrets & local data
+.env
+.env.local
+.env.*.local
+*.db
+*.db-journal
+writer.db
+*.log
+
+# Private seed data (real manuscripts stay local)
+backend/seed_lac_hong*.py
+backend/seed_vinhthanh.py
+
+# Local debug/probe scripts
+frontend/measure.js
+frontend/scan-scroll.js
+
+# Node
+node_modules/
+.next/
+.next-*/
+*.tsbuildinfo
+
+# OS
+Thumbs.db
+.DS_Store

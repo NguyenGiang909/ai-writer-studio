@@ -1,0 +1,64 @@
+# AI Writer Studio — ghi nhớ phiên làm việc
+
+Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ trợ (thảo luận, mở rộng, kiểm tra continuity). **Tác giả là authority** — AI không được tự đổi Canon/prose; mọi gợi ý là bản nháp hoặc qua Review queue.
+
+## Stack & chạy dev
+
+- Backend: FastAPI + SQLAlchemy async + SQLite (`backend/writer.db`) + Alembic
+- Frontend: Next.js 15 + React + TS (`frontend/`)
+- **Port backend: 8001** (port 8000 bị `gold-analyzer` của `D:\Trading System` chiếm — KHÔNG kill)
+- `frontend/.env.local`: `NEXT_PUBLIC_API_URL=http://127.0.0.1:8001`
+- Frontend: `localhost:3000`
+- Start backend: `cd backend && uvicorn app.main:app --port 8001`
+- Start frontend: `cd frontend && npm run dev`
+- DB schema: `create_all` tự tạo bảng dev; migration chuẩn qua `backend/alembic/versions/`
+
+## Verify
+
+- Backend tests: `cd backend && pytest` — hiện **75 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
+- Frontend: `cd frontend && npx tsc --noEmit`
+- Browser test: Playwright đã cài ở `C:\Users\Admin\AppData\Local\Temp\evon-probe\` (script `node -e "..."` lái `localhost:3000`)
+- Context AI preview miễn phí: `POST /api/v1/projects/{pid}/ai/context-manifest` body `{task, scene_id}` — xem manifest không tốn model call. Nút tương đương trong UI: `⌄ Ngữ cảnh được sử dụng` (RightPanel, tab Mở rộng)
+
+## Provider AI (quan trọng)
+
+- `model_preferences` trong `writer.db`: task `writing`, `discussion`, `revision`, `extraction`, `review`, `summarization`, `skeleton`, `expand`, `scene_expand`, `chapter_outline` → provider `kiraai` / model `deepseek-v4.1-flash`, credential `connected` — **call thật, ~57s/lần**
+- Task không có preference (`chat`, `brainstorm`) → `FakeProvider` instant (settings.allow_fake_provider)
+- `ModelRouter` ưu tiên: project preference > account preference > request.model > fake
+- UX chậm đã vá: `AiPanel` hiện pha (dựng context → chờ model + đếm giây) và nút Hủy qua AbortController (`postJSON`/`putJSON`/`patchJSON` nhận `signal`)
+
+## Kiến trúc AI memory (đã xây)
+
+- `ai_turns` table (`backend/app/models/memory.py`, alembic `0016`): ghi mọi call `ai/complete` — task/scene/prompt/reply/provider
+- `compose.py::_story_context`: session-turns (≤3 turn gần của scene, task ∈ MEMORY_TASKS), StorySummary non-stale theo ancestor chain, characters/canon **ranked theo relevance** (không cắt [:N] ngây), constraints cap 20 dòng, manifest `included ~Ntok [label]`/`omitted`
+- `build_story_prompt` tasks: `writing/expand/scene_expand` (WRITING_SYSTEM + constraints + BRIEF), `revision`, `extraction`, `skeleton` (SKELETON_SYSTEM + open threads), `chapter_outline` (system riêng + chapter-info + open threads, output `Tên cảnh — beat`), `summarization` (tóm tắt scene → StorySummary), `discussion/chat/brainstorm` (raw prompt)
+- Post-gen: `writing/expand/scene_expand/revision` có scene_id → check `restricted_appearance` trên draft → trả `issues[]`
+
+## Đã xong gần đây
+
+- Skeleton AI: nút `AI gợi ý` trong `SceneEditor` (Ghi chú xương cảnh), confirm trước khi ghi đè, autosave, KHÔNG qua Review/Canon — đúng "skeleton là nháp"
+- Timeline: resolve UUID→tên, dịch `key=value` qua `frontend/lib/stateText.ts` (6 kiểu machine-string → VI/EN), gom `<details>` theo thực thể mặc định đóng + preview trạng thái mới nhất, `ListFilter` tự mở nhóm khi lọc, form thêm sự kiện gập lại
+- Continuity check: knowledge-leak mới chỉ flag khi knower=POV hoặc có mặt trong văn + fact được nhắc; 167→18 điểm trên seed
+- `ProjectModal`: fix `createPortal` — modal từng vỡ vì `backdrop-filter` trên `header.top` làm containing block cho `position:fixed`
+- Chapter outline AI: nút `✦` trên chapter-row (`ManuscriptTree`) mở `ChapterOutlineModal` (portal) — model trả `Tên — beat` mỗi dòng, tick/sửa tay/bỏ tick rồi "Tạo N cảnh" → POST scenes tuần tự với `order_index = max(hiện có)+1` (đã fix 2 lỗi: prop `nextOrder` chưa destructured + unique(chapter_id, order_index) vì order bắt đầu từ 1)
+- Auto-summarize cảnh: `patch_scene` đánh stale `story_summaries` khi prose đổi; `SceneEditor` hiện tóm tắt cảnh + badge "đã cũ" + nút tóm tắt lại (task `summarization` → upsert StorySummary)
+
+## Quy ước code
+
+- i18n: `t(lang, "Chuỗi tiếng Việt gốc")`, key VI → value EN trong `frontend/lib/i18n.ts`. Placeholder nhiều dòng dùng `\n` escape, không viết newline thật trong string literal
+- Free-text `value_text` trong StoryState/seed viết dạng `KEY_SubKey` / `VERB_args` (vd `STOLEN_BY_Ba_Mắt_Lươn`, `SEALED_Tàng_Khố`, `SECRETLY_PROTECTS_Khánh`) — dịch ở tầng display qua `stateText.ts`, KHÔNG sửa data
+- UI/UX chuẩn: `.devin/skills/evon-uiux/` (app/dashboard); `.devin/skills/uxui/SKILL.md` trỏ làm authority chính, luật dự án override khi mâu thuẫn
+
+## Backlog / hướng tiếp theo
+
+- C+A roadmap memory: C đã xong (session turns + summaries + ranking); A = OpenAI Responses thread / Gemini chats khi cần provider giữ history thật
+- AI điền hộ form nhân vật (cùng pattern `/ai/complete` + tác giả duyệt)
+- Tạo scene từ outline hiện tuần tự — chưa batch; lỗi giữa chừng sẽ tạo thiếu một phần (cần atomic/batch endpoint nếu muốn an toàn hơn)
+- Timeline nâng tiếp: toggle chế độ xem (chronology/narrative/theo thực thể), semantic translation map đầy đủ hơn
+- UI để xem/prune `ai_turns` khi lớn
+- Auth thật, retrieval (embedding), Postgres migration test, Tauri packaging
+
+## Test data / id hay dùng
+
+- Project demo: `37269ce5-dfc9-430a-9ef2-207093354046`
+- Scene test: `89d54776-b72a-462d-a51e-01ddfee5d7d4` ("Hội cầu ngư — vớt được tàn kiếm", Ch.1)
