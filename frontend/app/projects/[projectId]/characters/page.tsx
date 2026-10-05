@@ -4,6 +4,7 @@ import KnowledgePeek from "../../../../components/KnowledgePeek";
 import { roleLabel, statusLabel, cap, charImportance, relImportance, importanceLabel } from "../../../../lib/labels";
 import ActionButton from "../../../../components/ActionButton";
 import ListFilter from "../../../../components/ListFilter";
+import CharacterAssist from "../../../../components/CharacterAssist";
 import { getLang } from "../../../../lib/lang-server";
 import { t } from "../../../../lib/i18n";
 
@@ -56,6 +57,8 @@ export default async function CharactersPage({ params }: { params: Promise<{ pro
           <div className="eyebrow">{t(lang, "Story bible")}</div>
           <h1>{t(lang, "Nhân vật")}</h1>
         </div>
+        <div style={{ display: "flex", gap: 8 }}>
+        <CharacterAssist projectId={projectId} />
         <PostForm endpoint={`${base}/characters`} submitLabel={t(lang, "Nhân vật")} triggerClass="btn primary" triggerLabel={t(lang, "＋ Nhân vật")} fields={[
           { name: "name", label: t(lang, "Tên"), required: true },
           { name: "role", label: t(lang, "Vai trò"), type: "select", options: [
@@ -65,6 +68,7 @@ export default async function CharactersPage({ params }: { params: Promise<{ pro
           { name: "summary", label: t(lang, "Tóm tắt"), type: "textarea" },
           { name: "voice_notes", label: t(lang, "Giọng nhân vật"), type: "textarea" },
         ]} />
+        </div>
       </div>
       <div className="grid">
         <div className="card">

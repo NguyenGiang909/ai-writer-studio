@@ -336,3 +336,14 @@ html[data-theme="dark"] .danger{color:#e89a92}
 .outline-row input[type=checkbox]{margin-top:8px}
 .outline-fields{flex:1;display:grid;gap:6px}
 .outline-fields input{width:100%}
+.ai-turns .turn>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ai-turns .turn>summary::-webkit-details-marker{display:none}
+.ai-turns .turn>summary::before{content:'›';color:var(--muted);font-size:13px;transition:transform .15s}
+.ai-turns .turn[open]>summary::before{transform:rotate(90deg)}
+.ai-turns .turn-body{padding:8px 0 4px}
+.ai-turns .turn-body pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.6 ui-sans-serif,system-ui;background:var(--paper2,#f3f0e8);border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin:4px 0 10px;max-height:220px;overflow:auto}
+.turn-prune{display:flex;align-items:center;gap:8px;font-size:13px;margin:2px 0 10px;flex-wrap:wrap}
+.turn-prune input{width:64px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:inherit;padding:5px 8px;font-size:13px}
+html[data-theme="dark"] .ai-turns .turn-body pre{background:#2f3033;border-color:#4c4d4f;color:#d9d6cd}
+.sum-progress{margin-top:4px}
+.sum-levels{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}

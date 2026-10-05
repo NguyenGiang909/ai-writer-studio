@@ -22,7 +22,7 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 
 ## Verify
 
-- Backend tests: `cd backend && pytest` — hiện **75 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
+- Backend tests: `cd backend && pytest` — hiện **93 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
 - Frontend: `cd frontend && npx tsc --noEmit`
 - Browser test: Playwright đã cài ở `C:\Users\Admin\AppData\Local\Temp\evon-probe\` (script `node -e "..."` lái `localhost:3000`)
 - Context AI preview miễn phí: `POST /api/v1/projects/{pid}/ai/context-manifest` body `{task, scene_id}` — xem manifest không tốn model call. Nút tương đương trong UI: `⌄ Ngữ cảnh được sử dụng` (RightPanel, tab Mở rộng)
@@ -47,7 +47,10 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - Timeline: resolve UUID→tên, dịch `key=value` qua `frontend/lib/stateText.ts` (6 kiểu machine-string → VI/EN), gom `<details>` theo thực thể mặc định đóng + preview trạng thái mới nhất, `ListFilter` tự mở nhóm khi lọc, form thêm sự kiện gập lại
 - Continuity check: knowledge-leak mới chỉ flag khi knower=POV hoặc có mặt trong văn + fact được nhắc; 167→18 điểm trên seed
 - `ProjectModal`: fix `createPortal` — modal từng vỡ vì `backdrop-filter` trên `header.top` làm containing block cho `position:fixed`
-- Chapter outline AI: nút `✦` trên chapter-row (`ManuscriptTree`) mở `ChapterOutlineModal` (portal) — model trả `Tên — beat` mỗi dòng, tick/sửa tay/bỏ tick rồi "Tạo N cảnh" → POST scenes tuần tự với `order_index = max(hiện có)+1` (đã fix 2 lỗi: prop `nextOrder` chưa destructured + unique(chapter_id, order_index) vì order bắt đầu từ 1)
+- Chapter outline AI: nút `✦` trên chapter-row (`ManuscriptTree`) mở `ChapterOutlineModal` (portal) — model trả `Tên — beat` mỗi dòng, tick/sửa tay/bỏ tick rồi "Tạo N cảnh" → **1 request `POST .../scenes/batch` atomic** (backend tự tính `order_index = max+1`, rollback all-or-nothing)
+- A3: `GET/DELETE /ai/turns` + `POST /ai/turns/prune {keep}` + card "Lịch sử AI" trên trang Memory (`AiTurnsCard` — `<details>` gập, xoá từng turn, prune giữ N mới nhất)
+- A1: `POST /summaries/generate` (upsert StorySummary theo scope, nguồn: scene→prose, chapter→con summaries, arc→chapter, volume→arc+orphan chapter, story→volume+orphan) + `GET /summaries/coverage` (đếm fresh/stale/missing/skipped từng tầng + pending list có label) + `SummarizeAllCard` chạy queue frontend (progress n/N + elapsed + Dừng qua AbortController, mỗi scope 1 request → hủy được, lưu ngay)
+- A4: `POST /characters/assist {name, hint}` — quét prose tìm đoạn chứa tên (≤8 đoạn ±260 ký tự), task `character_profile` trả JSON {role,summary,voice_notes,status,aliases} → `CharacterAssist` modal sửa → POST/PATCH /characters + aliases. KHÔNG tự ghi DB. Pref `character_profile`→kiraai trong writer.db
 - Auto-summarize cảnh: `patch_scene` đánh stale `story_summaries` khi prose đổi; `SceneEditor` hiện tóm tắt cảnh + badge "đã cũ" + nút tóm tắt lại (task `summarization` → upsert StorySummary)
 
 ## Quy ước code
@@ -59,10 +62,8 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 ## Backlog / hướng tiếp theo
 
 - C+A roadmap memory: C đã xong (session turns + summaries + ranking); A = OpenAI Responses thread / Gemini chats khi cần provider giữ history thật
-- AI điền hộ form nhân vật (cùng pattern `/ai/complete` + tác giả duyệt)
-- Tạo scene từ outline hiện tuần tự — chưa batch; lỗi giữa chừng sẽ tạo thiếu một phần (cần atomic/batch endpoint nếu muốn an toàn hơn)
 - Timeline nâng tiếp: toggle chế độ xem (chronology/narrative/theo thực thể), semantic translation map đầy đủ hơn
-- UI để xem/prune `ai_turns` khi lớn
+- Export/backup project, prose version history, tìm kiếm toàn cục, đọc trên mobile
 - Auth thật, retrieval (embedding), Postgres migration test, Tauri packaging
 
 ## Test data / id hay dùng

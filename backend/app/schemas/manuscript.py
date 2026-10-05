@@ -41,6 +41,14 @@ class SceneCreate(BaseModel):
     story_time: int | None = None
     narrative_order: int | None = None
     location_id: str | None = None
+class SceneBatchItem(BaseModel):
+    title: str | None = None
+    skeleton: str | None = None
+    scene_type: str | None = None
+    pov_character_id: str | None = None
+    location_id: str | None = None
+class SceneBatchCreate(BaseModel):
+    scenes: list[SceneBatchItem] = Field(min_length=1, max_length=30)
 class ScenePatch(BaseModel):
     title: str | None = None
     prose: str | None = None

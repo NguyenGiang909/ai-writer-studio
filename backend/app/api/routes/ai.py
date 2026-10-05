@@ -1,7 +1,7 @@
 
 import json,re
 from fastapi import APIRouter,Depends,HTTPException
-from sqlalchemy import select
+from sqlalchemy import select,delete,func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models import Project,Chapter,Scene
@@ -112,6 +112,52 @@ async def extract_suggestions(pid:str,sid:str,db:AsyncSession=Depends(get_db)):
         created.append(await _mk(db,pid,sid,"thread_beat",t))
     return {"created":len(created),"provider":result.provider,
             "items":[{"change_type":s.change_type,"payload":json.loads(s.payload_json)} for s in created]}
+
+@router.post("/projects/{pid}/characters/assist")
+async def character_assist(pid:str,p:CharacterAssistRequest,db:AsyncSession=Depends(get_db)):
+    """Quét prose tìm tên nhân vật → AI đề xuất hồ sơ nháp (JSON). Không ghi DB."""
+    await project_ok(db,pid)
+    name=p.name.strip()
+    if not name: raise HTTPException(400,"name required")
+    excerpts=[]
+    for sc in (await db.scalars(select(Scene).where(Scene.project_id==pid))).all():
+        prose=sc.prose or ""
+        m=re.search(re.escape(name),prose,re.IGNORECASE)
+        if not m: continue
+        a,b=max(0,m.start()-260),min(len(prose),m.end()+260)
+        excerpts.append(f"[{sc.title or 'Cảnh'}] …{prose[a:b].strip()}…")
+        if len(excerpts)>=8: break
+    existing=None
+    for c in (await db.scalars(select(Character).where(Character.project_id==pid))).all():
+        if (c.name or "").strip().lower()==name.lower(): existing=c; break
+    parts=[f"=== NHÂN VẬT ===\nTên: {name}"]
+    if existing:
+        parts.append("Hồ sơ hiện có (bổ sung, không lặp lại):\n"+json.dumps(
+            {"role":existing.role,"summary":existing.summary,
+             "voice_notes":existing.voice_notes,"status":existing.status},ensure_ascii=False))
+    if p.hint: parts.append(f"Gợi ý của tác giả: {p.hint.strip()}")
+    if excerpts:
+        parts.append(f"=== ĐOẠN TRÍCH BẢN THẢO ({len(excerpts)}) ===\n"+"\n\n".join(excerpts))
+    parts.append("=== YÊU CẦU ===\nTrả về JSON hồ sơ nháp theo đúng khóa trong system prompt.")
+    system,prompt,_=await build_story_prompt(db,pid,"character_profile","\n\n".join(parts))
+    try:
+        result=await ModelRouter(db).complete(
+            ModelRequest(task="character_profile",prompt=prompt,project_id=pid,system=system))
+    except RuntimeError as e: raise HTTPException(503,str(e))
+    db.add(AiTurn(project_id=pid,scope_id=existing.id if existing else pid,
+                  task="character_profile",prompt_excerpt=prompt[:1500],
+                  reply_text=(result.text or "")[:4000],
+                  provider=result.provider or "",model=result.model or ""))
+    await db.commit()
+    data=_parse_json(result.text)
+    draft={"name":name,"role":data.get("role"),"summary":data.get("summary"),
+           "voice_notes":data.get("voice_notes"),
+           "status":data.get("status") or "active",
+           "aliases":[a.strip() for a in (data.get("aliases") or [])
+                      if isinstance(a,str) and a.strip()][:6]}
+    return {"draft":draft,"excerpts_used":len(excerpts),
+            "existing_id":existing.id if existing else None,
+            "provider":result.provider,"model":result.model}
 
 def _parse_json(text:str)->dict:
     t=(text or "").strip()
@@ -325,3 +371,37 @@ async def continuity_check(pid:str,db:AsyncSession=Depends(get_db)):
     return {"issues":[{"code":i.code,"category":i.category,"severity":i.severity,
                        "message":i.message,"evidence":i.evidence} for i in out],
             "count":len(out),"auto_mutations":0}
+
+# ---- AI turn history (audit trail mọi call ai/complete) ----
+def _turn_out(t:AiTurn)->dict:
+    return {"id":t.id,"task":t.task,"scope_id":t.scope_id,"provider":t.provider,
+            "model":t.model,"prompt_excerpt":t.prompt_excerpt,"reply_text":t.reply_text,
+            "created_at":t.created_at}
+
+@router.get("/projects/{pid}/ai/turns")
+async def list_ai_turns(pid:str,limit:int=200,db:AsyncSession=Depends(get_db)):
+    await project_ok(db,pid)
+    limit=max(1,min(limit,500))
+    turns=list((await db.scalars(select(AiTurn).where(AiTurn.project_id==pid)
+        .order_by(AiTurn.created_at.desc(),AiTurn.id.desc()).limit(limit))).all())
+    total=await db.scalar(select(func.count(AiTurn.id)).where(AiTurn.project_id==pid))
+    return {"total":total or 0,"turns":[_turn_out(t) for t in turns]}
+
+@router.delete("/projects/{pid}/ai/turns/{turn_id}")
+async def delete_ai_turn(pid:str,turn_id:str,db:AsyncSession=Depends(get_db)):
+    await project_ok(db,pid)
+    t=await db.get(AiTurn,turn_id)
+    if not t or t.project_id!=pid: raise HTTPException(404,"turn not found in project")
+    await db.delete(t); await db.commit(); return {"deleted":turn_id}
+
+@router.post("/projects/{pid}/ai/turns/prune")
+async def prune_ai_turns(pid:str,p:PruneTurnsRequest,db:AsyncSession=Depends(get_db)):
+    """Giữ lại `keep` turn mới nhất, xoá phần còn lại."""
+    await project_ok(db,pid)
+    ids=list((await db.scalars(select(AiTurn.id).where(AiTurn.project_id==pid)
+        .order_by(AiTurn.created_at.desc(),AiTurn.id.desc()))).all())
+    doomed=ids[p.keep:]
+    if doomed:
+        await db.execute(delete(AiTurn).where(AiTurn.id.in_(doomed)))
+        await db.commit()
+    return {"deleted":len(doomed),"kept":len(ids)-len(doomed)}

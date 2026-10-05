@@ -116,6 +116,27 @@ async def create_scene(project_id: str, chapter_id: str, payload: SceneCreate, d
     obj=Scene(project_id=project_id, chapter_id=chapter_id, **data)
     db.add(obj); await db.commit(); await db.refresh(obj); return obj
 
+@router.post("/projects/{project_id}/chapters/{chapter_id}/scenes/batch", response_model=list[SceneOut])
+async def create_scenes_batch(project_id: str, chapter_id: str, payload: SceneBatchCreate, db: AsyncSession=Depends(get_db)):
+    """Tạo nhiều cảnh trong 1 transaction — order_index tự nối tiếp từ max hiện có."""
+    await project_or_404(db, project_id)
+    ch=await db.get(Chapter,chapter_id)
+    if not ch or ch.project_id != project_id: raise HTTPException(404,"chapter not found in project")
+    prev=list((await db.scalars(select(Scene).where(
+        Scene.chapter_id==chapter_id).order_by(Scene.order_index.desc()))).all())
+    next_order=(prev[0].order_index+1) if prev else 1
+    prev_time=prev[0].story_time if prev else None
+    objs=[]
+    for i,item in enumerate(payload.scenes):
+        data=item.model_dump()
+        data["order_index"]=next_order+i
+        data["story_time"]=prev_time
+        data["narrative_order"]=ch.order_index
+        objs.append(Scene(project_id=project_id, chapter_id=chapter_id, **data))
+    db.add_all(objs); await db.commit()
+    for o in objs: await db.refresh(o)
+    return objs
+
 @router.patch("/projects/{project_id}/scenes/{scene_id}", response_model=SceneOut)
 async def patch_scene(project_id: str, scene_id: str, payload: ScenePatch, db: AsyncSession=Depends(get_db)):
     obj=await db.get(Scene,scene_id)

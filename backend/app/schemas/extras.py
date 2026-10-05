@@ -94,5 +94,11 @@ class CompleteRequest(BaseModel):
     task:str; prompt:str; model:str|None=None; scene_id:str|None=None; chapter_id:str|None=None
 class ContextManifestRequest(BaseModel):
     task:str|None=None; scene_id:str|None=None; chapter_id:str|None=None
+class PruneTurnsRequest(BaseModel):
+    keep:int=Field(ge=0,default=50)
+class SummaryGenerateRequest(BaseModel):
+    scope_type:str; scope_id:str
+class CharacterAssistRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=240); hint:str|None=None
 class LineDiffRequest(BaseModel):
     original:str; replacement:str

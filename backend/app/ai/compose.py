@@ -88,6 +88,18 @@ SUMMARIZE_SYSTEM = (
     "thay đổi (nếu có). Chỉ dùng dữ kiện trong văn — không suy diễn, không bình luận."
 )
 
+CHARACTER_PROFILE_SYSTEM = (
+    "Bạn là trợ lý biên tập tiểu thuyết. Dựa trên các đoạn trích bản thảo và dữ liệu "
+    "được cung cấp, đề xuất hồ sơ nhân vật dạng JSON THUẦN (không markdown, không "
+    "lời dẫn, không giải thích) với các khóa: "
+    '"role" (một trong: protagonist, deuteragonist, antagonist, supporting, minor), '
+    '"summary" (2-4 câu tiếng Việt: nhân vật là ai, muốn gì, mâu thuẫn chính), '
+    '"voice_notes" (giọng nói, cách xưng hô, tics nếu thấy trong văn), '
+    '"status" (active/dead/exited — không rõ thì "active"), '
+    '"aliases" (mảng tên gọi khác xuất hiện trong văn, tối đa 6). '
+    "Chỉ dùng dữ kiện có trong dữ liệu — không suy diễn, không bịa chi tiết."
+)
+
 
 def _est(text: str) -> int:
     return max(1, len(text) // 4)
@@ -300,6 +312,8 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
         return CHAPTER_OUTLINE_SYSTEM, "\n\n---\n\n".join(parts), manifest
     if task == "summarization":
         return SUMMARIZE_SYSTEM, user_prompt, manifest
+    if task == "character_profile":
+        return CHARACTER_PROFILE_SYSTEM, user_prompt, manifest
     if task in {"discussion", "chat", "brainstorm"}:
         return None, user_prompt, manifest
     return None, user_prompt, manifest

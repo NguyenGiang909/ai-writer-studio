@@ -288,7 +288,6 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
         <ChapterOutlineModal
           projectId={projectId}
           chapter={outlineCh}
-          nextOrder={(outlineCh.scenes ?? []).reduce((m: number, s: any) => Math.max(m, (s.order_index ?? -1) + 1), 0)}
           onClose={() => setOutlineCh(null)}
         />
       )}

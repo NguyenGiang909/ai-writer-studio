@@ -1,6 +1,8 @@
 import { getJSON } from "../../../../lib/api";
 import PostForm from "../../../../components/PostForm";
 import ActionButton from "../../../../components/ActionButton";
+import AiTurnsCard from "../../../../components/AiTurnsCard";
+import SummarizeAllCard from "../../../../components/SummarizeAllCard";
 import { scopeLabel, payloadText } from "../../../../lib/labels";
 import { getLang } from "../../../../lib/lang-server";
 import { t } from "../../../../lib/i18n";
@@ -45,6 +47,7 @@ export default async function MemoryPage({ params }: { params: Promise<{ project
         {t(lang, "Tóm tắt là bản nháp phụ trợ, không phải Canon. Retcon và impact chỉ xem trước — không tự áp dụng.")}
       </p>
       <div className="grid">
+        <SummarizeAllCard projectId={projectId} />
         <section className="card">
           <h3>{t(lang, "Tóm tắt phân cấp ({n})", { n: summaries.length })}</h3>
           {summaries.map((s: any) => (
@@ -91,6 +94,10 @@ export default async function MemoryPage({ params }: { params: Promise<{ project
             { name: "proposal", label: t(lang, "Đề xuất thay đổi"), type: "textarea", required: true },
           ]} />
         </section>
+
+        <div style={{ gridColumn: "1 / -1" }}>
+          <AiTurnsCard projectId={projectId} />
+        </div>
       </div>
     </div></main>
   );

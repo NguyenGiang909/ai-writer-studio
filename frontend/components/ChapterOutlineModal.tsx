@@ -23,11 +23,10 @@ function parseOutline(text: string): Row[] {
 }
 
 export default function ChapterOutlineModal({
-  projectId, chapter, nextOrder, onClose,
+  projectId, chapter, onClose,
 }: {
   projectId: string;
   chapter: { id: string; title: string; order_index: number };
-  nextOrder: number;
   onClose: () => void;
 }) {
   const lang = useLang();
@@ -69,14 +68,12 @@ export default function ChapterOutlineModal({
     if (!picked.length) return;
     setCreating(true);
     try {
-      for (let i = 0; i < picked.length; i++) {
-        const r = picked[i];
-        await postJSON(`/api/v1/projects/${projectId}/chapters/${chapter.id}/scenes`, {
+      await postJSON(`/api/v1/projects/${projectId}/chapters/${chapter.id}/scenes/batch`, {
+        scenes: picked.map((r) => ({
           title: r.title.trim(),
-          order_index: nextOrder + i,
           skeleton: r.beat ? `• ${r.beat}` : null,
-        });
-      }
+        })),
+      });
       toast(t(lang, "Đã tạo {n} cảnh — vẫn là bản nháp, sửa tuỳ ý", { n: picked.length }));
       router.refresh();
       onClose();
