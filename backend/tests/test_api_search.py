@@ -38,3 +38,19 @@ async def test_search_canon_thread_and_scoping(client, proj):
     r2 = (await client.get(f"/api/v1/projects/{other['id']}/search", params={"q": "kiếm"})).json()
     assert r2["results"] == []
     assert (await client.get(f"/api/v1/projects/{pid}/search", params={"q": ""})).status_code == 422
+
+@pytest.mark.asyncio
+async def test_search_wildcards_are_literal_and_blank_safe(client, proj):
+    pid, sc = proj["project"]["id"], proj["scene"]["id"]
+    await client.patch(f"/api/v1/projects/{pid}/scenes/{sc}", json={"prose": "Giảm 100% công lực."})
+    # "%" là literal — match đúng prose chứa "100%", không phải wildcard match-all
+    r = (await client.get(f"/api/v1/projects/{pid}/search", params={"q": "100%"})).json()
+    assert any(x["type"] == "scene" for x in r["results"])
+    # "%" chỉ match literal — đúng 1 scene chứa "100%", không phải match-all mọi bảng
+    r2 = (await client.get(f"/api/v1/projects/{pid}/search", params={"q": "%"})).json()
+    assert r2["total"] == 1 and r2["results"][0]["type"] == "scene"
+    r3 = (await client.get(f"/api/v1/projects/{pid}/search", params={"q": "_"})).json()
+    assert r3["total"] == 0
+    # query toàn khoảng trắng → rỗng sau strip → không match-all
+    r4 = (await client.get(f"/api/v1/projects/{pid}/search", params={"q": "   "})).json()
+    assert r4["total"] == 0

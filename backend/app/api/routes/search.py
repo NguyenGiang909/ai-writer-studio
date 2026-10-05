@@ -20,7 +20,9 @@ def _snippet(text: str | None, q: str, span: int = 90) -> str:
     return ("…" if a else "") + text[a:b].strip() + ("…" if b < len(text) else "")
 
 def _like(col, q):
-    return func.lower(col).like(f"%{q.lower()}%")
+    # Escape ký tự đặc biệt của LIKE — tìm "%" hay "_" phải ra literal, không phải wildcard
+    e = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return func.lower(col).like(f"%{e}%", escape="\\")
 
 @router.get("/projects/{pid}/search")
 async def search_project(pid: str, q: str = Query(min_length=1, max_length=200),
@@ -29,6 +31,7 @@ async def search_project(pid: str, q: str = Query(min_length=1, max_length=200),
     canon fact, thread, sự kiện, địa điểm. Trả label + snippet quanh match."""
     if not await db.get(Project, pid): raise HTTPException(404, "project not found")
     q = q.strip()
+    if not q: return {"q": q, "total": 0, "results": []}
     out = []
 
     scenes = (await db.scalars(select(Scene).where(Scene.project_id == pid).where(
