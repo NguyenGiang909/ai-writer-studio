@@ -15,6 +15,8 @@ from app.api.routes.memory import router as memory_router
 from app.api.routes.account import router as account_router
 from app.api.routes.ai import router as ai_router
 from app.api.routes.signals import router as signals_router
+from app.api.routes.export import router as export_router
+from app.api.routes.search import router as search_router
 
 app = FastAPI(title="AI Writer Studio", version="recovery-m1")
 
@@ -38,6 +40,8 @@ app.include_router(memory_router, prefix="/api/v1")
 app.include_router(account_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(signals_router, prefix="/api/v1")
+app.include_router(export_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api/v1")
 
 
 @app.on_event("startup")

@@ -1,9 +1,11 @@
 import json
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models import Project, Volume, Arc, Chapter, Scene
+from app.models.manuscript import SceneVersion
 from app.schemas.manuscript import *
 
 router = APIRouter()
@@ -12,6 +14,31 @@ async def project_or_404(db: AsyncSession, project_id: str):
     obj = await db.get(Project, project_id)
     if not obj: raise HTTPException(404, "project not found")
     return obj
+
+# Autosave bắn PATCH liên tục — chỉ chốt 1 checkpoint mỗi 90s để lịch sử
+# gồm các "mốc phiên sửa" thay vì hàng trăm bản gần giống nhau.
+SNAPSHOT_WINDOW = timedelta(seconds=90)
+
+async def _snapshot_version(db: AsyncSession, scene: Scene, prose: str, force: bool = False):
+    """Lưu prose CŨ thành version. Bỏ qua nếu version mới nhất còn trong cửa sổ
+    90s (trừ force=True dùng cho restore — không bao giờ mất trạng thái hiện tại)."""
+    latest = (await db.scalars(select(SceneVersion).where(
+        SceneVersion.scene_id == scene.id).order_by(SceneVersion.created_at.desc()))).first()
+    now = datetime.utcnow()
+    if not force and latest and (now - latest.created_at) < SNAPSHOT_WINDOW:
+        return
+    db.add(SceneVersion(project_id=scene.project_id, scene_id=scene.id,
+                        title=scene.title, prose=prose or ""))
+
+async def _stale_ancestor_summaries(db: AsyncSession, project_id: str, scene_id: str):
+    # prose đổi → các tóm tắt phủ cảnh này (scene→chapter→arc/volume→story) hết hạn
+    from app.models.memory import StorySummary
+    from app.services.memory import ancestor_chain
+    chain = set(await ancestor_chain(db, project_id, "scene", scene_id))
+    for s in (await db.scalars(select(StorySummary).where(
+        StorySummary.project_id == project_id))).all():
+        if (s.scope_type, s.scope_id) in chain and not s.stale:
+            s.stale = True
 
 @router.post("/projects", response_model=ProjectOut)
 async def create_project(payload: ProjectCreate, db: AsyncSession=Depends(get_db)):
@@ -149,16 +176,46 @@ async def patch_scene(project_id: str, scene_id: str, payload: ScenePatch, db: A
         from app.models.story import Location
         loc=await db.get(Location,data["location_id"])
         if not loc or loc.project_id!=project_id: raise HTTPException(400,"location outside project")
+    old_prose=obj.prose or ""
     for k,v in data.items(): setattr(obj,k,v)
     if "prose" in data:
-        # prose đổi → các tóm tắt phủ cảnh này (scene→chapter→arc/volume→story) hết hạn
-        from app.models.memory import StorySummary
-        from app.services.memory import ancestor_chain
-        chain=set(await ancestor_chain(db,project_id,"scene",scene_id))
-        for s in (await db.scalars(select(StorySummary).where(
-            StorySummary.project_id==project_id))).all():
-            if (s.scope_type,s.scope_id) in chain and not s.stale:
-                s.stale=True
+        if data["prose"] != old_prose:
+            await _snapshot_version(db, obj, old_prose)
+        await _stale_ancestor_summaries(db, project_id, scene_id)
+    await db.commit(); await db.refresh(obj); return obj
+
+def _vout(v: SceneVersion, full: bool = False):
+    d = {"id": v.id, "scene_id": v.scene_id, "title": v.title,
+         "created_at": v.created_at, "chars": len(v.prose or ""),
+         "excerpt": (v.prose or "")[:160]}
+    if full: d["prose"] = v.prose or ""
+    return d
+
+@router.get("/projects/{project_id}/scenes/{scene_id}/versions", response_model=list[SceneVersionOut])
+async def list_scene_versions(project_id: str, scene_id: str, db: AsyncSession=Depends(get_db)):
+    obj=await db.get(Scene,scene_id)
+    if not obj or obj.project_id!=project_id: raise HTTPException(404,"scene not found in project")
+    rows=(await db.scalars(select(SceneVersion).where(SceneVersion.scene_id==scene_id)
+        .order_by(SceneVersion.created_at.desc()).limit(50))).all()
+    return [_vout(v) for v in rows]
+
+@router.get("/projects/{project_id}/scenes/{scene_id}/versions/{version_id}", response_model=SceneVersionFullOut)
+async def get_scene_version(project_id: str, scene_id: str, version_id: str, db: AsyncSession=Depends(get_db)):
+    v=await db.get(SceneVersion,version_id)
+    if not v or v.project_id!=project_id or v.scene_id!=scene_id: raise HTTPException(404,"version not found")
+    return _vout(v, full=True)
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/versions/{version_id}/restore", response_model=SceneOut)
+async def restore_scene_version(project_id: str, scene_id: str, version_id: str, db: AsyncSession=Depends(get_db)):
+    """Khôi phục prose từ version — force-snapshot trạng thái hiện tại trước
+    (không mất dữ liệu), rồi đánh stale summaries như sửa prose thường."""
+    obj=await db.get(Scene,scene_id)
+    if not obj or obj.project_id!=project_id: raise HTTPException(404,"scene not found in project")
+    v=await db.get(SceneVersion,version_id)
+    if not v or v.scene_id!=scene_id: raise HTTPException(404,"version not found")
+    await _snapshot_version(db, obj, obj.prose, force=True)
+    obj.prose=v.prose or ""
+    await _stale_ancestor_summaries(db, project_id, scene_id)
     await db.commit(); await db.refresh(obj); return obj
 
 @router.delete("/projects/{project_id}/scenes/{scene_id}")

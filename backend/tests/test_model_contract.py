@@ -2,7 +2,7 @@
 from app.db.base import Base
 import app.models
 
-EXPECTED={"projects","volumes","arcs","chapters","scenes",
+EXPECTED={"projects","volumes","arcs","chapters","scenes","scene_versions",
  "characters","world_entities","locations","factions","items","abilities",
  "relationships","aliases","character_arcs","style_profiles","style_samples",
  "canon_facts","author_decisions","story_events","story_states","knowledge_states","secrets",

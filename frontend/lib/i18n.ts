@@ -773,4 +773,37 @@ const EN: Record<string, string> = {
   "Đừng hỏi lại lần sau": "Don't ask again",
   "Bắt đầu": "Start",
   "Để sau": "Later",
+  // Export / backup
+  "Sao lưu (.json)": "Backup (.json)",
+  "Bản thảo (.md)": "Manuscript (.md)",
+  "Tải toàn bộ project — nhân vật, canon, threads, memory…": "Download the whole project — characters, canon, threads, memory…",
+  "Chỉ bản thảo: chương + cảnh, prose sạch": "Manuscript only: chapters + scenes, clean prose",
+  // Scene version history
+  "Phiên bản": "Versions",
+  "Lịch sử phiên bản": "Version history",
+  "Các phiên bản prose đã lưu của cảnh này — xem lại / khôi phục": "Saved prose versions of this scene — preview / restore",
+  "Mỗi phiên bản là prose cũ trước khi bị ghi đè. Khôi phục sẽ tự lưu prose hiện tại thành một phiên bản.": "Each version is the previous prose before being overwritten. Restoring first saves the current prose as a new version.",
+  "Chưa có phiên bản nào — sửa prose lần đầu sẽ tạo mốc đầu tiên.": "No versions yet — the first prose edit creates the first checkpoint.",
+  "Khôi phục bản này? Prose hiện tại sẽ được lưu thành một phiên bản mới trước khi ghi đè.": "Restore this version? The current prose will be saved as a new version before being overwritten.",
+  "Đã khôi phục phiên bản cũ": "Previous version restored",
+  "Khôi phục thất bại": "Restore failed",
+  "Khôi phục": "Restore",
+  "Xem": "View",
+  "Gập": "Collapse",
+  "ký tự": "chars",
+  "(trống)": "(empty)",
+  // Global search
+  "Thread": "Thread",
+  "{n} kết quả cho “{q}”": "{n} results for “{q}”",
+  "Nhập từ khóa ở ô tìm kiếm phía trên.": "Type a keyword in the search box above.",
+  "Không có kết quả nào — thử từ khóa khác hoặc ngắn gọn hơn.": "No results — try a different or shorter keyword.",
+  // Timeline modes
+  "Hai trục": "Dual axes",
+  "Theo thời gian truyện": "By story time",
+  "Theo thứ tự kể": "By narrative order",
+  // Reading mode
+  "Đọc lại": "Read mode",
+  "Đọc bản thảo sạch — không công cụ chỉnh sửa": "Read the manuscript clean — no editing tools",
+  "Chưa có chương nào để đọc.": "No chapters to read yet.",
+  "Cảnh {n} chưa có văn.": "Scene {n} has no prose yet.",
 };

@@ -58,3 +58,13 @@ class Scene(Base):
     story_time: Mapped[int | None] = mapped_column(Integer)
     narrative_order: Mapped[int | None] = mapped_column(Integer)
     location_id: Mapped[str | None] = mapped_column(String(36))
+
+class SceneVersion(Base):
+    """Snapshot prose của cảnh — lưu bản cũ trước khi ghi đè (patch/restore)."""
+    __tablename__ = "scene_versions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    scene_id: Mapped[str] = mapped_column(ForeignKey("scenes.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str | None] = mapped_column(String(240))
+    prose: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

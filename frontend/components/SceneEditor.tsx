@@ -6,6 +6,7 @@ import { sceneTypeLabel } from "../lib/labels";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
 import { toast } from "../lib/toast";
+import SceneHistory from "./SceneHistory";
 
 const SCENE_TYPES = [
   "mystery", "discovery", "relationship", "intimacy", "daily_life",
@@ -63,6 +64,7 @@ export default function SceneEditor({
   const [loc, setLoc] = useState(scene.location_id ?? "");
   const [state, setState] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [extracting, setExtracting] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<Record<string, unknown>>({});
   const proseRef = useRef<HTMLTextAreaElement>(null);
@@ -245,6 +247,10 @@ export default function SceneEditor({
             title={t(lang, "AI đọc văn cảnh này, trích fact/sự kiện/thực thể mới → đẩy vào Review chờ duyệt")}>
             {extracting ? t(lang, "Đang trích…") : t(lang, "Trích xuất dữ kiện")}
           </button>
+          <button className="btn" onClick={() => setShowHistory(true)}
+            title={t(lang, "Các phiên bản prose đã lưu của cảnh này — xem lại / khôi phục")}>
+            {t(lang, "Phiên bản")}
+          </button>
           {memoryHref && (
             <Link href={memoryHref} className="btn" style={{ textDecoration: "none" }}>
               {t(lang, "Lịch sử")}
@@ -413,6 +419,21 @@ export default function SceneEditor({
           </nav>
         )}
       </article>
+      {showHistory && (
+        <SceneHistory
+          projectId={projectId}
+          sceneId={scene.id}
+          lang={lang}
+          onClose={() => setShowHistory(false)}
+          onRestore={(p) => {
+            // prose đã được server ghi + snapshot trạng thái hiện tại — chỉ đồng bộ UI
+            if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+            pending.current = {};
+            setProse(p);
+            setState("saved");
+          }}
+        />
+      )}
     </>
   );
 }

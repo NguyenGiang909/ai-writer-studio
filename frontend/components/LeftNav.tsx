@@ -3,9 +3,11 @@ import Link from "next/link";
 import NavLink from "./NavLink";
 import ManuscriptTree from "./ManuscriptTree";
 import { t, type Lang } from "../lib/i18n";
+import { API } from "../lib/api";
 
 const NAV = [
   { suffix: "", icon: "✎", label: "Bản thảo", exact: true },
+  { suffix: "/read", icon: "❖", label: "Đọc lại" },
   { suffix: "/story", icon: "◇", label: "Thiết kế truyện" },
   { suffix: "/characters", icon: "♙", label: "Nhân vật" },
   { suffix: "/world", icon: "◎", label: "Thế giới" },
@@ -68,6 +70,14 @@ export default function LeftNav({
       <Link href="/settings" className="nav-item" style={{ textDecoration: "none" }}>
         <span>⚙</span> {t(lang, "Kết nối API")}
       </Link>
+      <a href={`${API}/api/v1/projects/${projectId}/export`} className="nav-item" style={{ textDecoration: "none" }}
+         download title={t(lang, "Tải toàn bộ project — nhân vật, canon, threads, memory…")}>
+        <span>⤓</span> {t(lang, "Sao lưu (.json)")}
+      </a>
+      <a href={`${API}/api/v1/projects/${projectId}/export?format=markdown`} className="nav-item" style={{ textDecoration: "none" }}
+         download title={t(lang, "Chỉ bản thảo: chương + cảnh, prose sạch")}>
+        <span>⤓</span> {t(lang, "Bản thảo (.md)")}
+      </a>
       <div className="section-label">{t(lang, "Cây bản thảo")}</div>
       <Suspense fallback={null}>
         <ManuscriptTree

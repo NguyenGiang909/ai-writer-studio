@@ -3,6 +3,7 @@ import { getJSON } from "../../../../lib/api";
 import PostForm from "../../../../components/PostForm";
 import ActionButton from "../../../../components/ActionButton";
 import ListFilter from "../../../../components/ListFilter";
+import TimelineView from "../../../../components/TimelineView";
 import { getLang } from "../../../../lib/lang-server";
 import { t } from "../../../../lib/i18n";
 import { stateKeyLabel, stateValueText } from "../../../../lib/stateText";
@@ -92,16 +93,30 @@ export default async function TimelinePage({ params }: { params: Promise<{ proje
         {t(lang, "Thời gian trong truyện và thứ tự độc giả đọc là hai trục độc lập — flashback không được lộ kiến thức tương lai.")}
       </p>
       {events.length ? (
-        <div className="grid" id="tl-events">
-          <div className="card">
-            <h3>{t(lang, "Thời gian trong truyện")}</h3>
-            {byStoryTime.map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
-          </div>
-          <div className="card">
-            <h3>{t(lang, "Thứ tự kể")}</h3>
-            {byNarrative.map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
-          </div>
-        </div>
+        <TimelineView
+          dual={
+            <div className="grid">
+              <div className="card">
+                <h3>{t(lang, "Thời gian trong truyện")}</h3>
+                {byStoryTime.map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
+              </div>
+              <div className="card">
+                <h3>{t(lang, "Thứ tự kể")}</h3>
+                {byNarrative.map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
+              </div>
+            </div>
+          }
+          chrono={
+            <div className="card">
+              {byStoryTime.map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
+            </div>
+          }
+          narrative={
+            <div className="card">
+              {byNarrative.map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
+            </div>
+          }
+        />
       ) : (
         <div className="card" id="tl-events">
           <p className="subtle">{t(lang, "Chưa có sự kiện nào — thêm ở bên dưới hoặc trong Canon & Truth.")}</p>

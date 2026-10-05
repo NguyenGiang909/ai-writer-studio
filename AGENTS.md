@@ -22,7 +22,7 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 
 ## Verify
 
-- Backend tests: `cd backend && pytest` — hiện **93 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
+- Backend tests: `cd backend && pytest` — hiện **104 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
 - Frontend: `cd frontend && npx tsc --noEmit`
 - Browser test: Playwright đã cài ở `C:\Users\Admin\AppData\Local\Temp\evon-probe\` (script `node -e "..."` lái `localhost:3000`)
 - Context AI preview miễn phí: `POST /api/v1/projects/{pid}/ai/context-manifest` body `{task, scene_id}` — xem manifest không tốn model call. Nút tương đương trong UI: `⌄ Ngữ cảnh được sử dụng` (RightPanel, tab Mở rộng)
@@ -52,6 +52,11 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - A1: `POST /summaries/generate` (upsert StorySummary theo scope, nguồn: scene→prose, chapter→con summaries, arc→chapter, volume→arc+orphan chapter, story→volume+orphan) + `GET /summaries/coverage` (đếm fresh/stale/missing/skipped từng tầng + pending list có label) + `SummarizeAllCard` chạy queue frontend (progress n/N + elapsed + Dừng qua AbortController, mỗi scope 1 request → hủy được, lưu ngay)
 - A4: `POST /characters/assist {name, hint}` — quét prose tìm đoạn chứa tên (≤8 đoạn ±260 ký tự), task `character_profile` trả JSON {role,summary,voice_notes,status,aliases} → `CharacterAssist` modal sửa → POST/PATCH /characters + aliases. KHÔNG tự ghi DB. Pref `character_profile`→kiraai trong writer.db
 - Auto-summarize cảnh: `patch_scene` đánh stale `story_summaries` khi prose đổi; `SceneEditor` hiện tóm tắt cảnh + badge "đã cũ" + nút tóm tắt lại (task `summarization` → upsert StorySummary)
+- B1: `GET /projects/{pid}/export?format=json|markdown` — JSON dump toàn bộ bảng project-scoped (không gồm credentials/usage) + `.md` bản thảo Quyển→Hồi→Chương→Cảnh; link `Sao lưu (.json)` / `Bản thảo (.md)` trong LeftNav mục Cá nhân (thẻ `<a download>` thẳng API)
+- B2: bảng `scene_versions` (migration 0017) — `patch_scene` snapshot prose cũ khi đổi, gom burst-edit <90s thành 1 checkpoint; `GET versions` (excerpt 160c + chars) / `GET versions/{id}` (full prose) / `POST versions/{id}/restore` (force-snapshot hiện tại trước, đánh stale summaries). `SceneHistory` modal nút "Phiên bản" trong SceneEditor
+- B3: `GET /projects/{pid}/search?q=` — cảnh(chapter+prose+skeleton)/chương/nhân vật(+alias)/canon/thread/event/location, snippet ±90c quanh match; `TopSearch` client comp (Enter → `/search?q=`), trang `search/page.tsx` group theo loại + link sâu (scene/chapter→`?scene=`, char→/characters, canon→/truth…)
+- B4: `TimelineView` client comp — segmented `.mode` switch Hai trục/Theo thời gian/Theo thứ tự kể bọc 3 list dựng sẵn từ server
+- B5: `/projects/{pid}/read?chapter=` — reading mode theo chương, `.read-wrap` 720px + prev/next + `ChapterSelect` dropdown, responsive ≤760px; nav item "Đọc lại" trong LeftNav
 
 ## Quy ước code
 
@@ -62,9 +67,8 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 ## Backlog / hướng tiếp theo
 
 - C+A roadmap memory: C đã xong (session turns + summaries + ranking); A = OpenAI Responses thread / Gemini chats khi cần provider giữ history thật
-- Timeline nâng tiếp: toggle chế độ xem (chronology/narrative/theo thực thể), semantic translation map đầy đủ hơn
-- Export/backup project, prose version history, tìm kiếm toàn cục, đọc trên mobile
-- Auth thật, retrieval (embedding), Postgres migration test, Tauri packaging
+- Timeline nâng tiếp: group/filter theo thực thể cho events, semantic translation map đầy đủ hơn
+- Auth thật, retrieval (embedding/FTS — `func.lower(col).like` chỉ case-fold ASCII, chưa normalize dấu), Postgres migration test, Tauri packaging
 
 ## Test data / id hay dùng
 

@@ -1,11 +1,11 @@
 
-from app.models.manuscript import Project, Volume, Arc, Chapter, Scene
+from app.models.manuscript import Project, Volume, Arc, Chapter, Scene, SceneVersion
 from app.models.story import (
  Character, WorldEntity, Location, Faction, Item, Ability,
  Relationship, Alias, CharacterArc, StyleProfile, StyleSample,
 )
 __all__=[
- "Project","Volume","Arc","Chapter","Scene","Character","WorldEntity","Location",
+ "Project","Volume","Arc","Chapter","Scene","SceneVersion","Character","WorldEntity","Location",
  "Faction","Item","Ability","Relationship","Alias","CharacterArc","StyleProfile","StyleSample"
 ]
 

@@ -10,6 +10,7 @@ import LeftNav from "../../../components/LeftNav";
 import RightPanel from "../../../components/RightPanel";
 import ProjectModal from "../../../components/ProjectModal";
 import SaveIndicator from "../../../components/SaveIndicator";
+import TopSearch from "../../../components/TopSearch";
 
 async function safe(path: string, fallback: any = []) {
   try {
@@ -52,9 +53,9 @@ export default async function ProjectLayout({
           <span className="mark">A</span> AI Writer Studio
         </Link>
         <ProjectModal currentId={projectId} currentName={project?.name} />
-        <div className="top-search">
-          <input placeholder={t(lang, "Tìm chương, nhân vật, chi tiết…")} aria-label={t(lang, "Tìm kiếm")} />
-        </div>
+        <Suspense fallback={<div className="top-search" />}>
+          <TopSearch projectId={projectId} />
+        </Suspense>
         <SaveIndicator />
         <Link href="/account" className="account-shortcut" style={{ textDecoration: "none" }}>
           {t(lang, "Tài khoản")}

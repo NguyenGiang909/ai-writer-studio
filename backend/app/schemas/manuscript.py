@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 class ORMModel(BaseModel):
@@ -71,3 +72,12 @@ class SceneOut(ORMModel):
     @property
     def brief(self) -> dict | None:
         return json.loads(self.brief_json) if self.brief_json else None
+
+class SceneVersionOut(ORMModel):
+    id: str; scene_id: str; title: str | None
+    created_at: datetime | None = None
+    chars: int = 0
+    excerpt: str = ""
+
+class SceneVersionFullOut(SceneVersionOut):
+    prose: str = ""
