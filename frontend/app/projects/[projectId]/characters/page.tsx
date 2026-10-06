@@ -14,9 +14,11 @@ export default async function CharactersPage({ params }: { params: Promise<{ pro
   const { projectId } = await params;
   const lang = await getLang();
   const base = `/api/v1/projects/${projectId}`;
-  const [characters, aliases, arcs, relationships] = await Promise.all([
+  const [characters, aliases, arcs, relationships, prov] = await Promise.all([
     safe(`${base}/characters`), safe(`${base}/aliases`), safe(`${base}/character-arcs`), safe(`${base}/relationships`),
+    safe(`${base}/authoring/provenance`),
   ]);
+  const aiIds = new Set((prov?.items ?? []).map((i: any) => i.entity_id));
   const charName = (id: string) => characters.find((c: any) => c.id === id)?.name ?? id?.slice(0, 8);
   const charOpts = characters.map((c: any) => ({ value: c.id, label: c.name }));
 
@@ -89,6 +91,7 @@ export default async function CharactersPage({ params }: { params: Promise<{ pro
                     <div className="avatar">{c.name?.[0] ?? "?"}</div>
                     <div className="person-main">
                       <b>{c.name}</b>
+                      {aiIds.has(c.id) && <i className="prov-ai" title={t(lang, "AI tạo")}>✦</i>}
                       <small>{[roleLabel(c.role, lang), c.status ? statusLabel(c.status, lang) : ""].filter(Boolean).join(" · ")}</small>
                       {c.summary && <small>{cap(c.summary)}</small>}
                     </div>

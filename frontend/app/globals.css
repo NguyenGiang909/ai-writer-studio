@@ -361,3 +361,31 @@ html[data-theme="dark"] .ai-turns .turn-body pre{background:#2f3033;border-color
 .read-p{font:17px/1.95 'Noto Serif',Georgia,'Times New Roman',serif;margin:0 0 1.15em}
 html[data-theme="dark"] .read-p{color:#dedbd3}
 @media(max-width:760px){.read-wrap{padding:20px 16px 60px}.read-title{font-size:24px}.read-p{font-size:16px;line-height:1.9}.read-nav .btn{max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* Authoring room — AI pipeline 3-pane */
+.authoring-grid{display:grid;grid-template-columns:190px minmax(0,1fr) 300px;gap:16px;align-items:start}
+.auth-stages{display:grid;gap:8px}
+.auth-stage{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.auth-stage .auth-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:#efe9dc;color:var(--ink);flex:none}
+.auth-stage b{display:block;font-size:13px}
+.auth-stage small{color:var(--muted);font-size:11.5px}
+.auth-stage.active{border-color:var(--teal);box-shadow:0 0 0 3px #386d6512}
+.auth-stage.active .auth-ico{background:var(--teal);color:#fff}
+.auth-stage.review{border-color:#c29b53;box-shadow:0 0 0 3px #c29b5320}
+.auth-stage.review .auth-ico{background:#c29b53;color:#fff}
+.auth-stage.todo{opacity:.55}
+.auth-stage.done .auth-ico{background:#2f6f51;color:#fff}
+.auth-payload h3{font:700 18px 'Noto Serif',Georgia,serif;margin:14px 0 4px}
+.auth-payload p{font-size:14px;line-height:1.6;margin:6px 0}
+.auth-payload-json{font:12px/1.6 ui-monospace,monospace;background:var(--paper2,#f3f0e8);border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
+.auth-log .auth-steps{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px;max-height:430px;overflow:auto}
+.auth-steps .astep{display:flex;gap:7px;align-items:baseline;font-size:12px;padding:6px 8px;border-radius:7px;background:var(--paper2,#f3f0e8)}
+.astep code{font:11px/1.4 ui-monospace,monospace;word-break:break-all}
+.astep.done span{color:#2f6f51}
+.astep.failed span{color:var(--red)}
+html[data-theme="dark"] .auth-stage{background:#3a3b3d;border-color:#515254}
+html[data-theme="dark"] .auth-stage .auth-ico{background:#4a4b4d;color:#edeae3}
+html[data-theme="dark"] .auth-stage.active .auth-ico{background:#5d938a;color:#101415}
+html[data-theme="dark"] .auth-steps .astep,html[data-theme="dark"] .auth-payload-json{background:#2f3033;border-color:#4c4d4f;color:#d9d6cd}
+@media(max-width:1100px){.authoring-grid{grid-template-columns:170px minmax(0,1fr)}.auth-log{grid-column:1/-1}}
+@media(max-width:760px){.authoring-grid{grid-template-columns:1fr}.auth-stages{grid-template-columns:repeat(2,1fr)}}
+.prov-ai{font-style:normal;color:#c29b53;font-size:10px;margin-left:5px;vertical-align:super}

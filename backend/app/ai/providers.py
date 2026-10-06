@@ -50,6 +50,20 @@ Bạn muốn tôi mở rộng hướng nào trước?  [FAKE · provider=fake]""
 
 _FAKE_EXTRACT = """{"events": [], "entities": [], "canon_facts": [], "story_states": [], "knowledge": [], "thread_touches": [], "notes": "fake extractor — chưa có model thật"}"""
 
+_FAKE_PREMISE = """{"title": "Truyện Giả Lập", "logline": "Một người lữ khách tìm lại ký ức bị đánh mất.", "premise": "Nhân vật chính tỉnh dậy không còn ký ức, chỉ có một chiếc la bàn lạ. Mỗi trang sách trong thư viện cổ là một mảnh ký ức của ai đó — kể cả của chính anh.", "genre": "huyền bí", "tone": "trầm, suy tư", "themes": ["ký ức", "danh tính"], "target_reader": "người lớn"}"""
+
+_FAKE_CAST = """{"characters": [{"name": "Minh", "role": "protagonist", "summary": "Lữ khách mất ký ức.", "voice_notes": "ít nói", "status": "active", "importance": 5, "aliases": ["người không tên"]}, {"name": "Lão Tạp", "role": "supporting", "summary": "Thủ thư già.", "voice_notes": "nói điệu", "status": "active", "importance": 3, "aliases": []}, {"name": "Kẻ Đốp", "role": "antagonist", "summary": "Kẻ trộm ký ức.", "voice_notes": "lạnh", "status": "active", "importance": 4, "aliases": []}], "relationships": [{"a": "Minh", "b": "Lão Tạp", "type": "mentor", "notes": "dẫn đường"}]}"""
+
+_FAKE_WORLD = """{"locations": [{"name": "Thư viện Cổ", "description": "Nơi lưu giữ ký ức dạng sách."}], "factions": [{"name": "Hội Thủ Thư", "description": "Giữ trật tự ký ức."}], "items": [{"name": "La bàn lạ", "description": "Chỉ về phía ký ức mất."}], "abilities": [], "lore": [{"name": "Quy tắc Ký ức", "type": "rule", "description": "Ký ức mất không bao giờ biến mất hẳn."}], "style": {"tone": "trầm", "pov": "ngôi thứ ba", "tense": "quá khứ", "notes": ""}}"""
+
+_FAKE_OUTLINE = """{"volumes": [{"title": "Quyển 1: Mảnh Ký Ức", "arcs": [{"title": "Hồi 1: Tỉnh dậy", "goal": "mở bí ẩn", "chapters": [{"title": "Chương 1: La bàn", "beat": "Minh tỉnh dậy, tìm thấy la bàn"}, {"title": "Chương 2: Thư viện", "beat": "Minh gặp Lão Tạp"}]}]}]}"""
+
+_FAKE_CHAPTER_SCENES = """Đến thư viện — Minh theo la bàn tới cửa thư viện cổ
+Gặp Lão Tạp — thủ thư già chặn lại, hỏi lai lịch
+Trang sách đầu — Minh đọc được mảnh ký ức đầu tiên"""
+
+_FAKE_CHAPTER_FACTS = """{"timeline_events": [{"event_type": "plot", "event": "Minh tìm thấy la bàn kỳ lạ", "story_time": 1}], "state_changes": [{"entity": "Minh", "field": "knowledge", "old_value": null, "new_value": "KNOWS_La_bàn", "story_time": 1}], "thread_touches": [{"thread_title": "Bí ẩn ký ức", "beat_type": "setup", "note": "la bàn chỉ về ký ức mất"}], "canon_facts": [{"subject_type": "story", "predicate": "exists", "value_text": "La bàn chỉ về ký ức đã mất"}]}"""
+
 _FAKE_DEFAULT = "Đã nhận yêu cầu. (Fake provider — trả lời định dạng mẫu để test UI, chưa phải model thật.)"
 
 
@@ -73,6 +87,18 @@ class FakeProvider(BaseProvider):
             text = _FAKE_DISCUSS.format(last=last)
         elif task in {"extraction", "review"}:
             text = _FAKE_EXTRACT
+        elif task == "premise":
+            text = _FAKE_PREMISE
+        elif task == "cast_gen":
+            text = _FAKE_CAST
+        elif task == "world_gen":
+            text = _FAKE_WORLD
+        elif task == "book_outline":
+            text = _FAKE_OUTLINE
+        elif task == "chapter_outline":
+            text = _FAKE_CHAPTER_SCENES
+        elif task == "chapter_facts":
+            text = _FAKE_CHAPTER_FACTS
         else:
             text = _FAKE_DEFAULT
 

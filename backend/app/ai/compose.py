@@ -88,6 +88,62 @@ SUMMARIZE_SYSTEM = (
     "thay đổi (nếu có). Chỉ dùng dữ kiện trong văn — không suy diễn, không bình luận."
 )
 
+PREMISE_SYSTEM = (
+    "Bạn là kiến trúc sư cốt truyện tiểu thuyết. Từ ý tưởng của tác giả, trả về "
+    "DUY NHẤT một JSON object hợp lệ (không markdown, không lời dẫn) với schema:\n"
+    '{"title":str,"logline":str,"premise":str,"genre":str,"tone":str,'
+    '"themes":[str],"target_reader":str}\n'
+    "premise = 3-6 câu tiếng Việt: nhân vật chính, xung đột trung tâm, thế bài duy nhất "
+    "của truyện. logline = 1 câu. Giữ đúng ý tưởng gốc, chỉ mở rộng có chủ đích."
+)
+
+CAST_GEN_SYSTEM = (
+    "Bạn là kiến trúc sư nhân vật tiểu thuyết. Từ premise + nhân vật đã có, trả về "
+    "DUY NHẤT JSON object hợp lệ:\n"
+    '{"characters":[{"name":str,"role":"protagonist|deuteragonist|antagonist|'
+    'supporting|minor","summary":str,"voice_notes":str,"status":"active",'
+    '"importance":0-3 (0=quan trọng nhất),"aliases":[str]}],'
+    '"relationships":[{"a":str,"b":str,"type":str,"notes":str}]}\n'
+    "6-12 nhân vật. a/b trong relationships phải khớp name đã sinh. Mỗi nhân vật có "
+    "vai trò rõ trong premise — không nhân vật trang trí."
+)
+
+WORLD_GEN_SYSTEM = (
+    "Bạn là kiến trúc sư thế giới tiểu thuyết. Từ premise + dàn nhân vật, trả về "
+    "DUY NHẤT JSON object:\n"
+    '{"locations":[{"name":str,"description":str}],'
+    '"factions":[{"name":str,"description":str}],'
+    '"items":[{"name":str,"description":str}],'
+    '"abilities":[{"name":str,"type":str,"can_do":str,"cannot_do":str,"limits":str,'
+    '"cost":str,"conditions":str}],'
+    '"lore":[{"name":str,"type":str,"description":str}],'
+    '"style":{"tone":str,"pov":str,"tense":str,"notes":str}}\n'
+    "Chỉ sinh mảng phù hợp thể loại (kiếm hiệp → abilities; đời thường → bỏ trống). "
+    "Locations nên có hierarchy ngầm (thành → quận → địa điểm)."
+)
+
+BOOK_OUTLINE_SYSTEM = (
+    "Bạn là kiến trúc sư cấu trúc tiểu thuyết. Từ premise + dàn nhân vật, trả về "
+    "DUY NHẤT JSON object:\n"
+    '{"volumes":[{"title":str,"arcs":[{"title":str,"goal":str,'
+    '"chapters":[{"title":str,"beat":str}]}]}]}\n'
+    "1-3 quyển, mỗi quyển 2-4 hồi, mỗi hồi 3-8 chương. Mỗi chương có title + beat "
+    "1 câu. Cấu trúc phải có cung hoàn chỉnh: mở → leo → cao trào → hạ/kết. "
+    "Nhân vật chỉ dùng tên đã có; foreshadowing gài sớm, trả muộn."
+)
+
+CHAPTER_FACTS_SYSTEM = (
+    "Bạn là bộ trích facts từ chương tiểu thuyết đã viết. Trả về DUY NHẤT JSON object:\n"
+    '{"timeline_events":[{"event_type":str,"event":str,"story_time":int|null}],'
+    '"state_changes":[{"entity":str,"field":str,"old_value":str|null,'
+    '"new_value":str,"story_time":int|null}],'
+    '"thread_touches":[{"thread_title":str,"beat_type":"setup|reinforcement|'
+    'escalation|payoff","note":str}],'
+    '"canon_facts":[{"subject_type":str,"predicate":str,"value_text":str}]}\n'
+    "entity/state chỉ trích cái THẬT SỰ thay đổi trong chương. thread_title mới = "
+    "mở thread mới; khớp thread đã có = beat trên thread đó. Không suy diễn ngoài văn."
+)
+
 CHARACTER_PROFILE_SYSTEM = (
     "Bạn là trợ lý biên tập tiểu thuyết. Dựa trên các đoạn trích bản thảo và dữ liệu "
     "được cung cấp, đề xuất hồ sơ nhân vật dạng JSON THUẦN (không markdown, không "
@@ -314,6 +370,16 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
         return SUMMARIZE_SYSTEM, user_prompt, manifest
     if task == "character_profile":
         return CHARACTER_PROFILE_SYSTEM, user_prompt, manifest
+    if task == "premise":
+        return PREMISE_SYSTEM, user_prompt, manifest
+    if task == "cast_gen":
+        return CAST_GEN_SYSTEM, user_prompt, manifest
+    if task == "world_gen":
+        return WORLD_GEN_SYSTEM, user_prompt, manifest
+    if task == "book_outline":
+        return BOOK_OUTLINE_SYSTEM, user_prompt, manifest
+    if task == "chapter_facts":
+        return CHAPTER_FACTS_SYSTEM, user_prompt, manifest
     if task in {"discussion", "chat", "brainstorm"}:
         return None, user_prompt, manifest
     return None, user_prompt, manifest

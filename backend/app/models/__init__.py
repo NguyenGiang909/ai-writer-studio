@@ -17,3 +17,4 @@ from app.models.discussion import DiscussionThread, DiscussionMessage, StylePref
 from app.models.review import SuggestedChange
 from app.models.memory import StorySummary, RetconProposal, AiTurn
 from app.models.account import ProviderCredential, ModelPreference, StoryBranch, BranchChange, UsageLog
+from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance

@@ -3,6 +3,8 @@ import { getJSON } from "../lib/api";
 import PostForm from "../components/PostForm";
 import ActionButton from "../components/ActionButton";
 import ThemeToggle from "../components/ThemeToggle";
+import ImportButton from "../components/ImportButton";
+import AiAuthoringStart from "../components/AiAuthoringStart";
 import LangToggle from "../components/LangToggle";
 import { getLang } from "../lib/lang-server";
 import { t } from "../lib/i18n";
@@ -54,14 +56,18 @@ export default async function Home() {
               <div className="eyebrow">{t(lang, "Dự án của bạn")}</div>
               <h1>{t(lang, "Chọn câu chuyện để tiếp tục viết")}</h1>
             </div>
-            <PostForm
+            <div style={{ display: "flex", gap: 8 }}>
+              <AiAuthoringStart lang={lang} />
+              <ImportButton />
+              <PostForm
               endpoint="/api/v1/projects"
               submitLabel={t(lang, "Thêm dự án")}
               fields={[
                 { name: "name", label: t(lang, "Tên dự án"), required: true, placeholder: t(lang, "Ví dụ: Mùa Trăng Cuối") },
                 { name: "description", label: t(lang, "Mô tả ngắn"), type: "textarea", placeholder: t(lang, "Ý tưởng trung tâm") },
               ]}
-            />
+              />
+            </div>
           </div>
           {apiDown && (
             <div className="notice" style={{ marginTop: 16 }}>

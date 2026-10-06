@@ -3,7 +3,7 @@ import Link from "next/link";
 import NavLink from "./NavLink";
 import ManuscriptTree from "./ManuscriptTree";
 import { t, type Lang } from "../lib/i18n";
-import { API } from "../lib/api";
+import { API, getJSON } from "../lib/api";
 
 const NAV = [
   { suffix: "", icon: "✎", label: "Bản thảo", exact: true },
@@ -19,6 +19,7 @@ const NAV = [
 ];
 
 const EXTRA_NAV = [
+  { suffix: "/authoring", icon: "✦", label: "Tạo truyện (AI)" },
   { suffix: "/truth", icon: "◈", label: "Canon & Truth" },
   { suffix: "/discussions", icon: "✦", label: "Thảo luận AI" },
   { suffix: "/signals", icon: "♒", label: "Dấu hiệu" },
@@ -26,7 +27,7 @@ const EXTRA_NAV = [
   { suffix: "/branches", icon: "⑂", label: "What-if" },
 ];
 
-export default function LeftNav({
+export default async function LeftNav({
   lang = "vi",
   projectId,
   tree,
@@ -42,6 +43,11 @@ export default function LeftNav({
   pendingCount: number;
 }) {
   const badges: Record<string, number> = { threads: openThreads, pending: pendingCount };
+  let aiIds: string[] | undefined;
+  try {
+    const prov = await getJSON(`/api/v1/projects/${projectId}/authoring/provenance`);
+    if (prov?.items?.length) aiIds = prov.items.map((i: any) => i.entity_id);
+  } catch {}
   return (
     <aside className="left">
       <div className="mode">
@@ -86,6 +92,7 @@ export default function LeftNav({
           arcs={tree.arcs ?? []}
           chapters={tree.chapters ?? []}
           characters={characters}
+          aiIds={aiIds}
         />
       </Suspense>
     </aside>

@@ -9,7 +9,8 @@ EXPECTED={"projects","volumes","arcs","chapters","scenes","scene_versions",
  "threads","thread_beats","thread_dependencies",
  "discussion_threads","discussion_messages","style_preferences",
  "suggested_changes","story_summaries","retcon_proposals","ai_turns",
- "provider_credentials","model_preferences","story_branches","branch_changes","usage_logs"}
+ "provider_credentials","model_preferences","story_branches","branch_changes","usage_logs",
+ "authoring_runs","authoring_steps","entity_provenance"}
 
 # account-level tables belong to the user, not a project
 USER_SCOPED={"provider_credentials","model_preferences","usage_logs"}

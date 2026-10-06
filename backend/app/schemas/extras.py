@@ -102,3 +102,7 @@ class CharacterAssistRequest(BaseModel):
     name:str=Field(min_length=1,max_length=240); hint:str|None=None
 class LineDiffRequest(BaseModel):
     original:str; replacement:str
+class AuthoringStartRequest(BaseModel):
+    prompt:str=Field(min_length=3,max_length=4000); name:str|None=None
+class AuthoringRegenerateRequest(BaseModel):
+    hint:str|None=Field(default=None,max_length=2000)

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PostForm from "./PostForm";
 import ChapterOutlineModal from "./ChapterOutlineModal";
@@ -29,9 +29,11 @@ type Props = {
   arcs: any[];
   chapters: any[];
   characters: { id: string; name: string }[];
+  aiIds?: string[];
 };
 
-export default function ManuscriptTree({ projectId, volumes, arcs, chapters, characters }: Props) {
+export default function ManuscriptTree({ projectId, volumes, arcs, chapters, characters, aiIds }: Props) {
+  const aiSet = useMemo(() => new Set(aiIds ?? []), [aiIds]);
   const lang = useLang();
   const search = useSearchParams();
   const selected = search.get("scene");
@@ -110,6 +112,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
           >{open ? "▾" : "▸"}</button>
           <i className={`status-dot ${dot}`}></i>
           <span className="chapter-name">{chapterName(c)}</span>
+          {aiSet.has(c.id) && <i className="prov-ai" title={t(lang, "AI tạo")}>✦</i>}
           <span className="chapter-count">{w ? fmtK(w) : "—"}</span>
         </div>
         <div className="chapter-meta">
@@ -135,6 +138,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
                 <span>{i + 1}</span>
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {s.title || t(lang, "Cảnh không tên")}
+                  {aiSet.has(s.id) && <i className="prov-ai" title={t(lang, "AI tạo")}>✦</i>}
                 </span>
                 <small>{s.scene_type ? sceneTypeLabel(s.scene_type, lang) : words(s.prose) ? t(lang, "Đã viết") : t(lang, "Chưa viết")}</small>
               </Link>

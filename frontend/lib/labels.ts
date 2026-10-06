@@ -196,7 +196,7 @@ export const importanceLabel = (i: number, lang?: Lang): string =>
 
 /** Effective bucket: stored importance wins; fall back to role-derived tier (unclassified → 2). */
 export function charImportance(c: { importance?: number | null; role?: string | null }): number {
-  if (c.importance != null) return c.importance;
+  if (c.importance != null) return Math.min(3, Math.max(0, c.importance));
   const t = roleTier(c.role);
   return t === 4 ? 2 : t;
 }
