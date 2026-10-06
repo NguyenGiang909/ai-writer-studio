@@ -80,7 +80,10 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
 
       {!run && (
         <section className="card" style={{ marginTop: 18, maxWidth: 640 }}>
-          <h2 style={{ marginTop: 0 }}>{t(lang, "Ý tưởng của bạn")}</h2>
+          <h2 style={{ marginTop: 0 }}>{t(lang, "Ý tưởng / định hướng")}</h2>
+          <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14 }}>
+            {t(lang, "Truyện đã có khung thì để trống — AI sẽ đọc nội dung hiện có và viết phần còn thiếu. Truyện mới cần ít nhất 1 câu ý tưởng.")}
+          </p>
           <div className="field">
             <textarea
               value={prompt}
@@ -93,8 +96,8 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
           {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
           <button
             className="btn primary"
-            disabled={busy || prompt.trim().length < 3}
-            onClick={() => act("start", { prompt: prompt.trim() })}
+            disabled={busy}
+            onClick={() => act("start", { prompt: prompt.trim() || undefined })}
           >
             {busy ? t(lang, "Đang khởi động…") : t(lang, "Bắt đầu tạo truyện")}
           </button>

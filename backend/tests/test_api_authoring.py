@@ -1,7 +1,7 @@
 import pytest, pytest_asyncio
 import app.services.authoring as eng
 from app.db.session import SessionLocal
-from app.models.authoring import AuthoringRun, EntityProvenance
+from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
 from app.models import Character, Location, Chapter, Scene
 from app.models.truth import StoryEvent, StoryState, CanonFact
 from app.models.narrative import Thread
@@ -201,3 +201,110 @@ async def test_cast_importance_clamped(client):
         imps = [c.importance for c in (await db.scalars(select(Character).where(
             Character.project_id == pid))).all()]
         assert all(i is None or 0 <= i <= 3 for i in imps)
+
+
+@pytest.mark.asyncio
+async def test_continue_existing_project(client):
+    """Dự án có sẵn khung: skip premise/cast/world/outline, chỉ điền chỗ thiếu.
+
+    Setup: ch1 có scene với prose tác giả viết; ch2 có scene rỗng; ch3 chưa có scene.
+    Kỳ vọng: không checkpoint rỗng; prose tác giả nguyên vẹn; scene rỗng được viết;
+    ch3 được dàn cảnh; facts trích từ toàn bộ chương; provenance chỉ trên entity AI."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "Vĩnh Thành", "description": "Đại gia đình buôn tơ lụa"})).json()["id"]
+    async with SessionLocal() as db:
+        db.add(Character(project_id=pid, name="Bảy Vĩnh", role="protagonist"))
+        db.add(Location(project_id=pid, name="Làng lụa Vĩnh Thành"))
+        ch1 = Chapter(project_id=pid, title="Hồi mở", order_index=1)
+        ch2 = Chapter(project_id=pid, title="Biến cố", order_index=2)
+        ch3 = Chapter(project_id=pid, title="Lật bài", order_index=3)
+        db.add_all([ch1, ch2, ch3]); await db.flush()
+        author_prose = "Đoạn văn tác giả tự viết. " * 30
+        db.add(Scene(project_id=pid, chapter_id=ch1.id, title="S1",
+                     order_index=0, prose=author_prose))
+        db.add(Scene(project_id=pid, chapter_id=ch2.id, title="S2",
+                     order_index=0, prose=None, skeleton="beat sẵn"))
+        await db.commit()
+
+    # không prompt — dự án có sẵn nên hợp lệ
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={})
+    assert r.status_code == 200
+    run_id = r.json()["run_id"]
+
+    log = []
+    for _ in range(80):
+        r_ = await eng.tick(run_id)
+        log.append(r_)
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+            log.append("approve")
+        elif cur["status"] in {"complete", "failed"}:
+            break
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert st["status"] == "complete"
+
+    async with SessionLocal() as db:
+        steps = (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid))).all()
+        keys = {s.step_key for s in steps}
+        # premise/cast/world/outline.generate KHÔNG chạy — dữ liệu có sẵn
+        assert not any(k.startswith(("premise.", "cast.", "world.", "outline.")) for k in keys)
+        # ch3 được dàn cảnh
+        assert any(k.startswith("chapter_scenes.") for k in keys)
+        scenes = (await db.scalars(select(Scene).where(
+            Scene.project_id == pid).order_by(Scene.order_index))).all()
+        s_author = [s for s in scenes if s.title == "S1"][0]
+        assert s_author.prose == author_prose  # prose tác giả nguyên vẹn
+        s2 = [s for s in scenes if s.title == "S2"][0]
+        assert (s2.prose or "").strip()       # scene rỗng được AI viết
+        assert all((s.prose or "").strip() for s in scenes)
+        # facts được trích cho các chương có prose
+        evs = (await db.scalars(select(StoryEvent).where(
+            StoryEvent.project_id == pid))).all()
+        assert len(evs) >= 1
+        # provenance: scene của tác giả KHÔNG có badge, scene AI có
+        prov = {p.entity_id for p in (await db.scalars(select(EntityProvenance).where(
+            EntityProvenance.project_id == pid))).all()}
+        assert s_author.id not in prov
+        assert s2.id not in prov  # scene row do tác giả tạo — chỉ prose là AI
+        ch3_scenes = [s for s in scenes if s.chapter_id == ch3.id]
+        assert ch3_scenes and all(s.id in prov for s in ch3_scenes)
+
+
+@pytest.mark.asyncio
+async def test_start_empty_prompt_rejected_on_empty_project(client):
+    pid = (await client.post("/api/v1/projects", json={"name": "Trống"})).json()["id"]
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_second_run_does_not_reextract_facts(client):
+    """Run thứ 2 trên cùng project: chapter_facts không trích lại → không trùng events."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T2"})).json()["id"]
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid, title="C1", order_index=1)
+        db.add(ch); await db.flush()
+        db.add(Scene(project_id=pid, chapter_id=ch.id, title="S",
+                     order_index=0, prose="Prose đủ dài để trích facts. " * 10))
+        await db.commit()
+    for run_no in range(2):
+        r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={})
+        run_id = r.json()["run_id"]
+        for _ in range(60):
+            await eng.tick(run_id)
+            cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+            if cur["status"] == "awaiting_review":
+                (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+            elif cur["status"] in {"complete", "failed"}:
+                break
+    async with SessionLocal() as db:
+        evs = (await db.scalars(select(StoryEvent).where(
+            StoryEvent.project_id == pid))).all()
+        n_events = len(evs)
+        keys = [s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid, AuthoringStep.status == "done"))).all()]
+        # chapter_facts chỉ chạy 1 lần duy nhất dù 2 run
+        assert len([k for k in keys if k.startswith("chapter_facts.")]) == 1
+        assert n_events <= 15  # fake provider trả ~2/chapter; không nhân đôi

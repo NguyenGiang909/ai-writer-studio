@@ -103,6 +103,7 @@ class CharacterAssistRequest(BaseModel):
 class LineDiffRequest(BaseModel):
     original:str; replacement:str
 class AuthoringStartRequest(BaseModel):
-    prompt:str=Field(min_length=3,max_length=4000); name:str|None=None
+    # prompt optional — dự án đã có khung thì AI tự tiếp nhận, prompt chỉ là định hướng
+    prompt:str|None=Field(default=None,max_length=4000); name:str|None=None
 class AuthoringRegenerateRequest(BaseModel):
     hint:str|None=Field(default=None,max_length=2000)

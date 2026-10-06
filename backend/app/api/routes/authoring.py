@@ -30,7 +30,17 @@ async def start(pid: str, p: AuthoringStartRequest, db: AsyncSession = Depends(g
     existing = await _latest_run(db, pid)
     if existing and existing.status in {"running", "awaiting_review", "paused"}:
         raise HTTPException(409, f"đã có run đang mở (status={existing.status})")
-    run = AuthoringRun(project_id=pid, prompt=p.prompt.strip(),
+    prompt = (p.prompt or "").strip()
+    if not prompt:
+        # dự án rỗng bắt buộc ý tưởng; dự án có sẵn → AI tự tiếp nhận khung hiện có
+        from app.models import Chapter, Character
+        has_content = bool((proj.description or "").strip()) or bool(
+            await db.scalar(select(func.count(Chapter.id)).where(Chapter.project_id == pid))) or bool(
+            await db.scalar(select(func.count(Character.id)).where(Character.project_id == pid)))
+        if not has_content:
+            raise HTTPException(400, "truyện mới cần ít nhất 1 câu ý tưởng")
+        prompt = "Tiếp tục phát triển truyện theo khung hiện có — điền phần còn thiếu, không ghi đè nội dung tác giả."
+    run = AuthoringRun(project_id=pid, prompt=prompt,
                        phase="premise", status="running")
     db.add(run)
     await db.commit()

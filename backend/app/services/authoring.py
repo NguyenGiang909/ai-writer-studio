@@ -33,6 +33,15 @@ from app.ai.compose import build_story_prompt
 
 PHASES = ["premise", "cast", "world", "outline", "writing"]
 
+# prefix step_key thuộc từng phase — dùng check "phase này có làm việc không"
+_PHASE_STEP_PREFIX = {
+    "premise": "premise.",
+    "cast": "cast.",
+    "world": "world.",
+    "outline": ("outline.", "chapter_scenes."),
+    "writing": ("scene_write.", "chapter_facts."),
+}
+
 
 @dataclass
 class Step:
@@ -44,16 +53,24 @@ class Step:
 
 @dataclass
 class Facts:
-    done: set[str] = field(default_factory=set)        # step_keys đã xong
-    failed: dict[str, int] = field(default_factory=dict)  # step_key → số lần fail
+    done: set[str] = field(default_factory=set)        # step_keys đã xong (toàn project, idempotent xuyên run)
+    run_done: set[str] = field(default_factory=set)    # step_keys xong trong run này (checkpoint detection)
+    failed: dict[str, int] = field(default_factory=dict)  # step_key → số lần fail (run này)
     chapters: list = field(default_factory=list)       # ordered
     scenes_by_chapter: dict = field(default_factory=dict)
+    has_premise: bool = False
+    has_cast: bool = False
+    has_world: bool = False
 
 
 async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
-    """IO boundary — đọc hết facts route cần. next_step giữ thuần."""
+    """IO boundary — đọc hết facts route cần. next_step giữ thuần.
+
+    done/project_id: step đã xong ở BẤT KỲ run nào của project → không làm lại
+    (chapter_facts tránh trích trùng, scene_write/chapter_scenes tự idempotent
+    qua trạng thái entity). failed/run_id: chỉ đếm lỗi của run hiện tại."""
     steps = (await db.scalars(select(AuthoringStep).where(
-        AuthoringStep.run_id == run.id))).all()
+        AuthoringStep.project_id == run.project_id))).all()
     chapters = list((await db.scalars(select(Chapter).where(
         Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all())
     scenes = list((await db.scalars(select(Scene).where(
@@ -61,31 +78,45 @@ async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
     by_ch: dict[str, list] = {}
     for sc in scenes:
         by_ch.setdefault(sc.chapter_id, []).append(sc)
+    proj = await db.get(Project, run.project_id)
+    n_chars = await db.scalar(select(func.count(Character.id)).where(
+        Character.project_id == run.project_id))
+    n_world = 0
+    for m in (Location, Faction, Item, Ability, WorldEntity):
+        n_world += await db.scalar(select(func.count(m.id)).where(
+            m.project_id == run.project_id)) or 0
     failed: dict[str, int] = {}
     for s in steps:
-        if s.status == "failed":
+        if s.status == "failed" and s.run_id == run.id:
             failed[s.step_key] = failed.get(s.step_key, 0) + 1
     return Facts(done={s.step_key for s in steps if s.status == "done"},
-                 failed=failed, chapters=chapters, scenes_by_chapter=by_ch)
+                 run_done={s.step_key for s in steps
+                           if s.status == "done" and s.run_id == run.id},
+                 failed=failed, chapters=chapters, scenes_by_chapter=by_ch,
+                 has_premise=bool((proj.description or "").strip()) if proj else False,
+                 has_cast=bool(n_chars), has_world=n_world > 0)
 
 
 def next_step(run: AuthoringRun, f: Facts) -> Step | None:
-    """Pure route — trả None khi phase hiện tại đã hết việc (checkpoint/complete)."""
+    """Pure route — trả None khi phase hiện tại đã hết việc (checkpoint/complete).
+
+    Continue-mode: stage đã có dữ liệu sẵn (tác giả viết tay / run trước) → bỏ qua,
+    chỉ làm phần còn thiếu."""
     ph = run.phase
     if ph == "premise":
-        if "premise.generate" not in f.done:
+        if not f.has_premise and "premise.generate" not in f.done:
             return Step("premise.generate", "premise", "Sinh premise + thể loại + tone")
         return None
     if ph == "cast":
-        if "cast.generate" not in f.done:
+        if not f.has_cast and "cast.generate" not in f.done:
             return Step("cast.generate", "cast_gen", "Sinh nhân vật + quan hệ")
         return None
     if ph == "world":
-        if "world.generate" not in f.done:
+        if not f.has_world and "world.generate" not in f.done:
             return Step("world.generate", "world_gen", "Sinh địa điểm + thế lực + vật/lore")
         return None
     if ph == "outline":
-        if "outline.generate" not in f.done:
+        if not f.chapters and "outline.generate" not in f.done:
             return Step("outline.generate", "book_outline", "Sinh khung Quyển/Hồi/Chương")
         for ch in f.chapters:
             if not f.scenes_by_chapter.get(ch.id) and f"chapter_scenes.{ch.id}" not in f.done:
@@ -126,9 +157,14 @@ def provenance(db, run, entity_type: str, entity_id: str):
 
 async def ai_call(db, run, task: str, prompt: str, system=None, scene_id=None,
                   chapter_id=None) -> tuple[dict | str, str]:
-    """Gọi model qua router + ghi AiTurn. Trả (text|json, provider)."""
+    """Gọi model qua router + ghi AiTurn. Trả (text|json, provider).
+
+    run.prompt = định hướng tác giả cho cả run → prepend vào mọi task
+    (premise tự đưa prompt vào input rồi, khỏi lặp)."""
     sys_prompt, body, _ = await build_story_prompt(db, run.project_id, task, prompt,
                                                  scene_id=scene_id, chapter_id=chapter_id)
+    if task != "premise" and (run.prompt or "").strip():
+        body = f"=== ĐỊNH HƯỚNG CỦA TÁC GIẢ ===\n{run.prompt.strip()}\n\n{body}"
     result = await ModelRouter(db).complete(ModelRequest(
         task=task, prompt=body, project_id=run.project_id,
         system=system or sys_prompt))
@@ -464,12 +500,20 @@ async def tick(run_id: str) -> str:
             await db.commit()
             return "stopped"
         if step is None:
+            # phase không sinh step nào trong run này (= dữ liệu có sẵn, skip)
+            # → tự sang phase kế, không bắt tác giả duyệt checkpoint rỗng
+            produced = any(k.startswith(_PHASE_STEP_PREFIX[run.phase])
+                           for k in facts.run_done)
             idx = PHASES.index(run.phase)
             if idx >= len(PHASES) - 1:
                 run.status = "complete"
+            elif not produced:
+                run.phase = PHASES[idx + 1]
             else:
                 run.status = "awaiting_review"
             await db.commit()
+            if run.status == "running":
+                return "step"  # loop tiếp trong phase mới
             return "complete" if run.status == "complete" else "checkpoint"
         try:
             out = await HANDLERS[step.task](db, run, step)
