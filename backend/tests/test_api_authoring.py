@@ -315,6 +315,54 @@ async def test_world_partial_fills_only_missing(client):
 
 
 @pytest.mark.asyncio
+async def test_outline_partial_fills_only_empty_arcs(client):
+    """Outline tách 2 tầng: arc1 có chương sẵn + arc2 rỗng → chỉ dàn arc2,
+    chương mới gắn đúng arc2, chương sẵn không bị đụng."""
+    from app.models import Arc
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        db.add(Character(project_id=pid, name="A"))
+        db.add(Location(project_id=pid, name="L"))
+        db.add(Faction(project_id=pid, name="F"))
+        db.add(Item(project_id=pid, name="I"))
+        db.add(Ability(project_id=pid, name="Ab"))
+        db.add(WorldEntity(project_id=pid, name="W"))
+        db.add(StyleProfile(project_id=pid, name="S", scope_type="global"))
+        arc1 = Arc(project_id=pid, title="Hồi 1", order_index=1)
+        arc2 = Arc(project_id=pid, title="Hồi 2", order_index=2)
+        db.add_all([arc1, arc2]); await db.flush()
+        ch_old = Chapter(project_id=pid, arc_id=arc1.id, title="Chương cũ",
+                         order_index=1, status="draft")
+        db.add(ch_old); await db.flush()
+        db.add(Scene(project_id=pid, chapter_id=ch_old.id, title="S",
+                     order_index=0, prose="x " * 200))
+        arc1_id, arc2_id, ch_old_id = arc1.id, arc2.id, ch_old.id
+        await db.commit()
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    for _ in range(60):
+        await eng.tick(st["id"])
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+        elif cur["status"] in {"complete", "failed"}:
+            break
+    assert cur["status"] == "complete"
+    async with SessionLocal() as db:
+        keys = {s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid))).all()}
+        assert not any(k.startswith("outline.skeleton") for k in keys)  # arcs sẵn → skip
+        assert f"outline.chapters.{arc2_id}" in keys
+        assert f"outline.chapters.{arc1_id}" not in keys  # arc1 đã có chương
+        chs = (await db.scalars(select(Chapter).where(
+            Chapter.project_id == pid).order_by(Chapter.order_index))).all()
+        new = [c for c in chs if c.id != ch_old_id]
+        assert new and all(c.arc_id == arc2.id for c in new)
+
+
+@pytest.mark.asyncio
 async def test_start_empty_prompt_rejected_on_empty_project(client):
     pid = (await client.post("/api/v1/projects", json={"name": "Trống"})).json()["id"]
     r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={})

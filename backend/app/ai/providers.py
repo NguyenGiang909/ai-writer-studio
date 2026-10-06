@@ -56,7 +56,9 @@ _FAKE_CAST = """{"characters": [{"name": "Minh", "role": "protagonist", "summary
 
 _FAKE_WORLD = """{"locations": [{"name": "Thư viện Cổ", "description": "Nơi lưu giữ ký ức dạng sách."}], "factions": [{"name": "Hội Thủ Thư", "description": "Giữ trật tự ký ức."}], "items": [{"name": "La bàn lạ", "description": "Chỉ về phía ký ức mất."}], "abilities": [], "lore": [{"name": "Quy tắc Ký ức", "type": "rule", "description": "Ký ức mất không bao giờ biến mất hẳn."}], "style": {"tone": "trầm", "pov": "ngôi thứ ba", "tense": "quá khứ", "notes": ""}}"""
 
-_FAKE_OUTLINE = """{"volumes": [{"title": "Quyển 1: Mảnh Ký Ức", "arcs": [{"title": "Hồi 1: Tỉnh dậy", "goal": "mở bí ẩn", "chapters": [{"title": "Chương 1: La bàn", "beat": "Minh tỉnh dậy, tìm thấy la bàn"}, {"title": "Chương 2: Thư viện", "beat": "Minh gặp Lão Tạp"}]}]}]}"""
+_FAKE_OUTLINE = """{"volumes": [{"title": "Quyển 1: Mảnh Ký Ức", "arcs": [{"title": "Hồi 1: Tỉnh dậy", "goal": "mở bí ẩn", "chapter_count": 2}]}]}"""
+
+_FAKE_ARC_CHAPTERS = """{"chapters": [{"title": "Chương 1: La bàn", "beat": "Minh tỉnh dậy, tìm thấy la bàn"}, {"title": "Chương 2: Thư viện", "beat": "Minh gặp Lão Tạp"}]}"""
 
 _FAKE_CHAPTER_SCENES = """Đến thư viện — Minh theo la bàn tới cửa thư viện cổ
 Gặp Lão Tạp — thủ thư già chặn lại, hỏi lai lịch
@@ -95,6 +97,8 @@ class FakeProvider(BaseProvider):
             text = _FAKE_WORLD
         elif task == "book_outline":
             text = _FAKE_OUTLINE
+        elif task == "arc_chapters":
+            text = _FAKE_ARC_CHAPTERS
         elif task == "chapter_outline":
             text = _FAKE_CHAPTER_SCENES
         elif task == "chapter_facts":

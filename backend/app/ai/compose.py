@@ -169,6 +169,28 @@ BOOK_OUTLINE_SYSTEM = (
     "Nhân vật chỉ dùng tên đã có; foreshadowing gài sớm, trả muộn."
 )
 
+# book_outline tách 2 tầng (chống gateway timeout): skeleton quyển/hồi trước,
+# rồi dàn chương TỪNG hồi một — call sau nhìn skeleton + chương đã dàn (liền mạch)
+OUTLINE_SKELETON_SYSTEM = (
+    "Bạn là kiến trúc sư cấu trúc tiểu thuyết — phần KHUNG QUYỂN/HỒI. Trả về "
+    "DUY NHẤT JSON object:\n"
+    '{"volumes":[{"title":str,"arcs":[{"title":str,"goal":str,'
+    '"chapter_count":int}]}]}\n'
+    "1-3 quyển, mỗi quyển 2-4 hồi, mỗi hồi 3-8 chương (chapter_count). goal = "
+    "mục tiêu cốt truyện của hồi, 1 câu. Cấu trúc cung hoàn chỉnh: mở → leo → "
+    "cao trào → hạ/kết. Foreshadowing gài sớm, trả muộn. KHÔNG dàn chương."
+)
+
+OUTLINE_ARC_SYSTEM = (
+    "Bạn là kiến trúc sư cấu trúc tiểu thuyết — DÀN CHƯƠNG cho MỘT hồi. Trả về "
+    "DUY NHẤT JSON object:\n"
+    '{"chapters":[{"title":str,"beat":str}]}\n'
+    "Mỗi chương: title + beat 1 câu. Chương phải NỐI TIẾP mạch chương đã dàn "
+    "(xem DANH SÁCH CHƯƠNG ĐÃ DÀN — không lặp beat, không gãy nhịp), bám đúng "
+    "goal của hồi được giao, đủ số chương yêu cầu (được lệch ±1 nếu cốt cần). "
+    "Nhân vật chỉ dùng tên đã có."
+)
+
 CHAPTER_FACTS_SYSTEM = (
     "Bạn là bộ trích facts từ chương tiểu thuyết đã viết. Trả về DUY NHẤT JSON object:\n"
     '{"timeline_events":[{"event_type":str,"event":str,"story_time":int|null}],'

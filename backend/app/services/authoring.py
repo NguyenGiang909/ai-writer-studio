@@ -31,6 +31,7 @@ from app.models.memory import AiTurn
 from app.ai.router import ModelRouter, ModelRequest
 from app.ai.compose import (
     build_story_prompt, WORLD_PLACES_SYSTEM, WORLD_RULES_SYSTEM, WORLD_LORE_SYSTEM,
+    OUTLINE_SKELETON_SYSTEM, OUTLINE_ARC_SYSTEM,
 )
 
 PHASES = ["premise", "cast", "world", "outline", "writing"]
@@ -59,6 +60,8 @@ class Facts:
     run_done: set[str] = field(default_factory=set)    # step_keys xong trong run này (checkpoint detection)
     failed: dict[str, int] = field(default_factory=dict)  # step_key → số lần fail (run này)
     chapters: list = field(default_factory=list)       # ordered
+    arcs: list = field(default_factory=list)           # ordered
+    chapters_by_arc: dict = field(default_factory=dict)
     scenes_by_chapter: dict = field(default_factory=dict)
     has_premise: bool = False
     has_cast: bool = False
@@ -75,6 +78,12 @@ async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
         AuthoringStep.project_id == run.project_id))).all()
     chapters = list((await db.scalars(select(Chapter).where(
         Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all())
+    arcs = list((await db.scalars(select(Arc).where(
+        Arc.project_id == run.project_id).order_by(Arc.order_index))).all())
+    by_arc: dict[str, list] = {}
+    for ch in chapters:
+        if ch.arc_id:
+            by_arc.setdefault(ch.arc_id, []).append(ch)
     scenes = list((await db.scalars(select(Scene).where(
         Scene.project_id == run.project_id).order_by(Scene.order_index))).all())
     by_ch: dict[str, list] = {}
@@ -97,7 +106,8 @@ async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
     return Facts(done={s.step_key for s in steps if s.status == "done"},
                  run_done={s.step_key for s in steps
                            if s.status == "done" and s.run_id == run.id},
-                 failed=failed, chapters=chapters, scenes_by_chapter=by_ch,
+                 failed=failed, chapters=chapters, arcs=arcs,
+                 chapters_by_arc=by_arc, scenes_by_chapter=by_ch,
                  has_premise=bool((proj.description or "").strip()) if proj else False,
                  has_cast=bool(n_chars), world_parts=world_parts)
 
@@ -133,8 +143,14 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
                 return Step(key, "world_gen", detail)
         return None
     if ph == "outline":
-        if not f.chapters and "outline.generate" not in f.done:
-            return Step("outline.generate", "book_outline", "Sinh khung Quyển/Hồi/Chương")
+        # tách 2 tầng chống timeout: skeleton quyển/hồi → dàn chương từng hồi
+        if not f.chapters and not f.arcs and "outline.skeleton" not in f.done:
+            return Step("outline.skeleton", "book_outline", "Sinh khung Quyển/Hồi")
+        for arc in f.arcs:
+            if not f.chapters_by_arc.get(arc.id) \
+                    and f"outline.chapters.{arc.id}" not in f.done:
+                return Step(f"outline.chapters.{arc.id}", "arc_chapters",
+                            f"Dàn chương hồi “{arc.title}”", arc.id)
         for ch in f.chapters:
             if not f.scenes_by_chapter.get(ch.id) and f"chapter_scenes.{ch.id}" not in f.done:
                 return Step(f"chapter_scenes.{ch.id}", "chapter_outline",
@@ -442,52 +458,101 @@ async def _facts_parts(db, run) -> set[str]:
     return parts
 
 
-async def h_outline(db, run, step):
+async def h_outline_skeleton(db, run, step):
     premise = _premise_ctx(run)
-    chars = [c.name for c in (await db.scalars(select(Character).where(
-        Character.project_id == run.project_id))).all()]
+    chars = await _cast_names(db, run)
     goal = (f"\n\n=== MỤC TIÊU ===\nTổng số chương mong muốn: ~{run.target_chapters}. "
-            f"Dàn quyển/hồi/chương sát mục tiêu này (được lệch nếu cốt truyện cần)."
+            f"Dàn quyển/hồi sát mục tiêu này (được lệch nếu cốt truyện cần)."
             if run.target_chapters else "")
     prompt = (f"=== PREMISE ===\n{json.dumps(premise, ensure_ascii=False)}\n\n"
               f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20])
-              + goal + "\n\nSinh khung truyện theo schema.")
-    text, _ = await ai_call(db, run, "book_outline", prompt)
+              + goal + "\n\nSinh khung Quyển/Hồi theo schema (chưa dàn chương).")
+    text, _ = await ai_call(db, run, "book_outline", prompt,
+                            system=OUTLINE_SKELETON_SYSTEM)
     data = parse_json(text)
     vols = data.get("volumes") or []
     if not vols:
-        raise ValueError("model không trả outline hợp lệ")
-    n_ch = 0
-    ch_order = 0
+        raise ValueError("model không trả khung quyển/hồi hợp lệ")
+    # order_index unique (project_id, order_index) toàn cục — đếm tiếp từ max
+    # hiện có, KHÔNG reset theo quyển (resume/tiếp nối cũng đúng)
+    vol_order = max((v.order_index for v in (await db.scalars(select(Volume).where(
+        Volume.project_id == run.project_id))).all()), default=0)
+    arc_order = max((a.order_index for a in (await db.scalars(select(Arc).where(
+        Arc.project_id == run.project_id))).all()), default=0)
+    n_arcs = 0
     for vi, v in enumerate(vols[:10], start=1):
         vol = Volume(project_id=run.project_id, title=_clip(v.get("title"), 240) or f"Quyển {vi}",
-                     order_index=vi)
+                     order_index=vol_order + vi)
         db.add(vol); await db.flush(); provenance(db, run, "volume", vol.id)
-        for ai_, a in enumerate((v.get("arcs") or [])[:10], start=1):
+        for a in (v.get("arcs") or [])[:10]:
+            arc_order += 1
             arc = Arc(project_id=run.project_id, volume_id=vol.id,
-                      title=_clip(a.get("title"), 240) or f"Hồi {ai_}", order_index=ai_)
+                      title=_clip(a.get("title"), 240) or f"Hồi {arc_order}",
+                      order_index=arc_order)
             db.add(arc); await db.flush(); provenance(db, run, "arc", arc.id)
-            for c in (a.get("chapters") or [])[:40]:
-                ch_order += 1
-                ch = Chapter(project_id=run.project_id, volume_id=vol.id, arc_id=arc.id,
-                             title=_clip(c.get("title"), 240) or f"Chương {ch_order}",
-                             order_index=ch_order, status="draft")
-                db.add(ch); await db.flush(); provenance(db, run, "chapter", ch.id)
-                if c.get("beat"):
-                    # giữ beat trong skeleton của chương-level? Chapter không có field —
-                    # để vào chapter title không; beat dùng khi dàn cảnh (chapter_scenes step)
-                    pass
-                n_ch += 1
+            a["_arc_id"] = arc.id  # map goal/count về arc id cho call dàn chương
+            n_arcs += 1
+    # skeleton bền trong cursor_json — call dàn chương đọc goal từng hồi
+    ctx = _premise_ctx(run)
+    ctx["skeleton"] = data
+    run.cursor_json = json.dumps(ctx, ensure_ascii=False)
     run.stage_payload_json = json.dumps(
-        {"volumes": len(vols), "chapters": n_ch}, ensure_ascii=False)
-    return {"volumes": len(vols), "chapters": n_ch}
+        {"volumes": len(vols), "arcs": n_arcs}, ensure_ascii=False)
+    return {"volumes": len(vols), "arcs": n_arcs}
+
+
+async def h_arc_chapters(db, run, step):
+    arc = await db.get(Arc, step.ref_id)
+    if not arc:
+        raise ValueError("arc không tồn tại")
+    ctx = _premise_ctx(run)
+    skeleton = ctx.get("skeleton") or {}
+    arc_meta = next((a for v in (skeleton.get("volumes") or [])
+                     for a in (v.get("arcs") or []) if a.get("_arc_id") == arc.id), {})
+    chars = await _cast_names(db, run)
+    existing = [c.title for c in (await db.scalars(select(Chapter).where(
+        Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all()]
+    want = arc_meta.get("chapter_count")
+    prompt = (f"=== PREMISE ===\n{json.dumps({k: v for k, v in ctx.items() if k != 'skeleton'}, ensure_ascii=False)}\n\n"
+              f"=== KHUNG TRUYỆN ===\n{json.dumps(skeleton, ensure_ascii=False)[:3000]}\n\n"
+              f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20]) + "\n\n"
+              f"=== DANH SÁCH CHƯƠNG ĐÃ DÀN ===\n" + ("\n".join(existing) or "(chưa có)") + "\n\n"
+              f"=== HỒI CẦN DÀN ===\n{arc.title}"
+              + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get("goal") else "")
+              + (f" — ~{want} chương" if want else "")
+              + "\n\nDàn chương cho hồi này theo schema.")
+    text, _ = await ai_call(db, run, "arc_chapters", prompt,
+                            system=OUTLINE_ARC_SYSTEM)
+    data = parse_json(text)
+    chs = data.get("chapters") or []
+    if not chs:
+        raise ValueError("model không trả chương hợp lệ")
+    order = max((c.order_index for c in (await db.scalars(select(Chapter).where(
+        Chapter.project_id == run.project_id))).all()), default=0)
+    beats = ctx.get("beats") or {}
+    n = 0
+    for c in chs[:40]:
+        order += 1
+        ch = Chapter(project_id=run.project_id, volume_id=arc.volume_id, arc_id=arc.id,
+                     title=_clip(c.get("title"), 240) or f"Chương {order}",
+                     order_index=order, status="draft")
+        db.add(ch); await db.flush(); provenance(db, run, "chapter", ch.id)
+        if c.get("beat"):
+            beats[ch.id] = c["beat"]  # giữ beat — dàn cảnh dùng lại
+        n += 1
+    ctx["beats"] = beats
+    run.cursor_json = json.dumps(ctx, ensure_ascii=False)
+    run.stage_payload_json = json.dumps({"arc": arc.title, "chapters": n}, ensure_ascii=False)
+    return {"chapters": n}
 
 
 async def h_chapter_scenes(db, run, step):
     ch = await db.get(Chapter, step.ref_id)
     if not ch:
         raise ValueError("chapter không tồn tại")
-    text, _ = await ai_call(db, run, "chapter_outline", "", chapter_id=ch.id)
+    beat = (_premise_ctx(run).get("beats") or {}).get(ch.id)
+    text, _ = await ai_call(db, run, "chapter_outline",
+                          f"Beat chương: {beat}" if beat else "", chapter_id=ch.id)
     created = []
     existing = (await db.scalars(select(Scene).where(
         Scene.chapter_id == ch.id).order_by(Scene.order_index))).all()
@@ -595,7 +660,8 @@ HANDLERS = {
     "premise": h_premise, "cast_gen": h_cast,
     "world.places": h_world_places, "world.rules": h_world_rules,
     "world.lore": h_world_lore,
-    "book_outline": h_outline, "chapter_outline": h_chapter_scenes,
+    "outline.skeleton": h_outline_skeleton, "arc_chapters": h_arc_chapters,
+    "chapter_outline": h_chapter_scenes,
     "scene_expand": h_scene_write, "chapter_facts": h_chapter_facts,
 }
 
@@ -639,6 +705,10 @@ async def tick(run_id: str) -> str:
             await mark_done(db, run, step, out)
             run.last_error = None
         except Exception as e:  # noqa: BLE001 — step fail không giết run
+            await db.rollback()  # step atomic — entity ghi dở không được lọt vào DB
+            run = await db.get(AuthoringRun, run_id)  # rollback expire object → re-fetch
+            if run is None:
+                return "stopped"
             await mark_failed(db, run, step, str(e))
             run.last_error = f"{step.key}: {e}"
         await db.commit()
@@ -676,7 +746,7 @@ _REGEN_STEPS = {
     "premise": ["premise.generate"],
     "cast": ["cast.generate"],
     "world": ["world."],
-    "outline": ["outline.generate", "chapter_scenes."],
+    "outline": ["outline.", "chapter_scenes."],
 }
 _ENTITY_MODEL = {
     "character": Character, "alias": Alias, "relationship": Relationship,
