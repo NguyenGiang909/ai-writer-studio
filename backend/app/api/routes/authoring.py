@@ -44,7 +44,8 @@ async def start(pid: str, p: AuthoringStartRequest, db: AsyncSession = Depends(g
                        phase="premise", status="running",
                        target_chapters=p.target_chapters,
                        words_per_scene=p.words_per_scene,
-                       call_mode=p.call_mode or "safe")
+                       call_mode=p.call_mode or "safe",
+                       flow=p.flow or "rolling")
     db.add(run)
     await db.commit()
     await db.refresh(run)
@@ -75,6 +76,39 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
             payload = json.loads(run.stage_payload_json)
         except Exception:
             payload = None
+    # context AI đang nắm — panel phải của phòng authoring
+    ctx = {}
+    try:
+        ctx = json.loads(run.cursor_json or "{}")
+    except Exception:
+        ctx = {}
+    from app.models import Arc, Chapter, Character, Location, Faction, Item, Ability
+    arcs = list((await db.scalars(select(Arc).where(
+        Arc.project_id == pid).order_by(Arc.order_index))).all())
+    chs = list((await db.scalars(select(Chapter).where(
+        Chapter.project_id == pid))).all())
+    done_keys = {r[0] for r in (await db.execute(select(AuthoringStep.step_key).where(
+        AuthoringStep.project_id == pid, AuthoringStep.status == "done"))).all()}
+    wave = ctx.get("wave_arc")
+    arc_list = []
+    for a in arcs:
+        achs = [c for c in chs if c.arc_id == a.id]
+        if a.id == wave:
+            st = "current"
+        elif achs and all(f"chapter_facts.{c.id}" in done_keys for c in achs):
+            st = "done"
+        else:
+            st = "todo"
+        arc_list.append({"id": a.id, "title": a.title, "state": st,
+                         "chapters": len(achs)})
+    cast = [r[0] for r in (await db.execute(select(Character.name).where(
+        Character.project_id == pid).limit(24))).all()]
+    counts = {"characters": len(cast),
+              "locations": await db.scalar(select(func.count(Location.id)).where(Location.project_id == pid)) or 0,
+              "factions": await db.scalar(select(func.count(Faction.id)).where(Faction.project_id == pid)) or 0,
+              "items": await db.scalar(select(func.count(Item.id)).where(Item.project_id == pid)) or 0,
+              "abilities": await db.scalar(select(func.count(Ability.id)).where(Ability.project_id == pid)) or 0,
+              "chapters": len(chs), "scenes": n_scenes or 0, "with_prose": n_prose or 0}
     return {
         "run": {
             "id": run.id, "phase": run.phase, "status": run.status,
@@ -82,13 +116,22 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
             "target_chapters": run.target_chapters,
             "words_per_scene": run.words_per_scene,
             "call_mode": run.call_mode,
+            "flow": run.flow, "pause_after_wave": run.pause_after_wave,
+            "wave_arc": wave,
             "progress": {"scenes": n_scenes or 0, "with_prose": n_prose or 0},
             "last_error": run.last_error, "created_at": str(run.created_at),
             "updated_at": str(run.updated_at), "live": eng.is_live(run.id),
         },
         "steps": [{"key": s.step_key, "status": s.status, "error": s.error,
                    "at": str(s.created_at)} for s in steps],
-        "phases": eng.PHASES,
+        "phases": eng.phases_for(run),
+        "context": {
+            "premise": {k: ctx.get(k) for k in
+                        ("title", "logline", "genre", "tone") if ctx.get(k)},
+            "skeleton": ctx.get("skeleton"),
+            "arcs": arc_list,
+            "cast": cast, "counts": counts,
+        },
     }
 
 
@@ -99,11 +142,17 @@ async def approve(pid: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "chưa có run")
     if run.status != "awaiting_review":
         raise HTTPException(409, f"run không đang chờ duyệt (status={run.status})")
-    idx = eng.PHASES.index(run.phase)
-    if idx >= len(eng.PHASES) - 1:
+    phs = eng.phases_for(run)
+    idx = phs.index(run.phase)
+    if run.phase == "build":
+        # build là phase cuối của rolling nhưng checkpoint sóng có thể còn hồi
+        # chưa dựng → chạy tiếp cùng phase, tick tự complete khi hết việc
+        run.status = "running"
+        run.stage_payload_json = None
+    elif idx >= len(phs) - 1:
         run.status = "complete"
     else:
-        run.phase = eng.PHASES[idx + 1]
+        run.phase = phs[idx + 1]
         run.status = "running"
         run.stage_payload_json = None
     await db.commit()
@@ -139,6 +188,20 @@ async def pause(pid: str, db: AsyncSession = Depends(get_db)):
         run.status = "paused"
         await db.commit()
     return {"status": run.status}
+
+
+@router.post("/projects/{pid}/authoring/pause-after-wave")
+async def pause_after_wave(pid: str, db: AsyncSession = Depends(get_db)):
+    """Cờ 1-lần: hồi đang sóng viết xong thì dừng checkpoint thay vì sang hồi kế.
+    Khác pause (dừng ngay giữa step) — cái này cho tác giả canh điểm dừng sạch."""
+    run = await _latest_run(db, pid)
+    if not run:
+        raise HTTPException(404, "chưa có run")
+    if run.status != "running":
+        raise HTTPException(409, f"run đang {run.status} — chỉ đặt cờ khi đang chạy")
+    run.pause_after_wave = not run.pause_after_wave  # toggle — bấm lại để huỷ
+    await db.commit()
+    return {"pause_after_wave": run.pause_after_wave}
 
 
 @router.post("/projects/{pid}/authoring/resume")

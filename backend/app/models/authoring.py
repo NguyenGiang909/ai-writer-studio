@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, ForeignKey, Integer, DateTime
+from sqlalchemy import String, Text, ForeignKey, Integer, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -24,6 +24,10 @@ class AuthoringRun(Base):
     words_per_scene: Mapped[int | None] = mapped_column(Integer)
     # safe = call nhỏ theo đơn vị (mặc định, chống timeout); fast = call gộp (API mạnh)
     call_mode: Mapped[str] = mapped_column(String(16), default="safe")
+    # batch = lên hết khung rồi viết; rolling = sóng theo hồi (hồi sau học văn hồi trước)
+    flow: Mapped[str] = mapped_column(String(16), default="rolling")
+    # cờ 1-lần: hồi đang chạy xong thì dừng checkpoint thay vì sang hồi kế
+    pause_after_wave: Mapped[bool] = mapped_column(Boolean, default=False)
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

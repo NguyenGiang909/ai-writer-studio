@@ -854,4 +854,16 @@ const EN: Record<string, string> = {
   "An toàn — nhiều call nhỏ": "Safe — many small calls",
   "Nhanh — ít call (API mạnh)": "Fast — fewer calls (strong API)",
   "Đang có phiên tạo truyện": "Authoring session in progress",
+  "Cách chạy": "Flow",
+  "Dựng theo hồi": "Build by arc",
+  "Theo sóng — từng hồi một": "Rolling — one arc at a time",
+  "Toàn bộ — khung trước, viết sau": "Batch — outline first, write later",
+  "Dàn hồi → viết hết hồi đó → hồi sau học theo văn đã viết. Chạy liên tục, có thể bấm dừng sau hồi đang viết.":
+    "Outline an arc → write it fully → next arc learns from written prose. Runs continuously; you can stop after the current arc.",
+  "Dàn hết toàn bộ chương/cảnh rồi mới viết. Duyệt khung một lần trước khi viết.":
+    "Outline all chapters/scenes first, then write. Review the full outline once before writing.",
+  "Dừng sau hồi này": "Stop after this arc",
+  "✓ Sẽ dừng sau hồi này": "✓ Will stop after this arc",
+  "Hồi đang viết xong thì dừng lại chờ duyệt — bấm lại để huỷ":
+    "Stops for review once the current arc finishes — click again to cancel",
 };

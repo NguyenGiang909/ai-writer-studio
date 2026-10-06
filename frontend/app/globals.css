@@ -382,6 +382,12 @@ html[data-theme="dark"] .read-p{color:#dedbd3}
 .astep code{font:11px/1.4 ui-monospace,monospace;word-break:break-all}
 .astep.done span{color:#2f6f51}
 .astep.failed span{color:var(--red)}
+.astep.running span{color:var(--teal)}
+.auth-waves{display:flex;flex-wrap:wrap;gap:6px}
+.wave-chip{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--paper2,#f3f0e8);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.wave-chip.done{color:#2f6f51;border-color:#2f6f5140}
+.wave-chip.current{color:var(--teal);border-color:var(--teal);background:#386d6512}
+.wave-chip small{opacity:.7}
 html[data-theme="dark"] .auth-stage{background:#3a3b3d;border-color:#515254}
 html[data-theme="dark"] .auth-stage .auth-ico{background:#4a4b4d;color:#edeae3}
 html[data-theme="dark"] .auth-stage.active .auth-ico{background:#5d938a;color:#101415}

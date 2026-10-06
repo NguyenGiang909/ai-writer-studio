@@ -55,7 +55,8 @@ async def test_full_pipeline_creates_story(client):
 
     st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
     assert st["status"] == "complete"
-    assert st["phase"] == "writing"
+    assert st["phase"] == "build"        # rolling mặc định — phase cuối là build
+    assert st["flow"] == "rolling"
     assert "checkpoint" in log  # đã dừng ở ranh giới stage
 
     async with SessionLocal() as db:
@@ -446,7 +447,8 @@ async def test_regenerate_outline_replaces_tree(client):
     """Regenerate outline: volume/arc/chapter/scene AI cũ bị xoá sạch, dựng bộ mới."""
     pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
     (await client.post(f"/api/v1/projects/{pid}/authoring/start",
-                       json={"prompt": "chu du thời gian"})).raise_for_status()
+                       json={"prompt": "chu du thời gian",
+                             "flow": "batch"})).raise_for_status()
     run_id = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]["id"]
 
     # chạy tới checkpoint outline (premise→cast→world→outline xong)
@@ -509,7 +511,8 @@ async def test_goals_reach_prompts(client):
     """target_chapters → outline prompt; words_per_scene → scene_write prompt."""
     pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
     r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={
-        "prompt": "hải trình cuối", "target_chapters": 12, "words_per_scene": 1500})
+        "prompt": "hải trình cuối", "target_chapters": 12, "words_per_scene": 1500,
+        "flow": "batch"})
     assert r.status_code == 200
     run_id = r.json()["run_id"]
 
@@ -572,7 +575,7 @@ async def test_fast_mode_uses_grouped_calls(client):
     """fast: world + outline gộp 1 call mỗi stage; phần thiếu vẫn granular bù."""
     pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
     run_id, log = await _drive(client, pid, {"prompt": "kẻ trộm ký ức",
-                                           "call_mode": "fast"})
+                                           "call_mode": "fast", "flow": "batch"})
     st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
     assert st["status"] == "complete" and st["call_mode"] == "fast"
 
@@ -601,3 +604,198 @@ async def test_safe_mode_uses_split_calls(client):
         assert {"world.places", "world.rules", "world.lore"} <= keys
         assert "outline.skeleton" in keys
         assert "world.generate" not in keys and "outline.generate" not in keys
+
+
+# ---------- rolling flow ----------
+
+async def _seed_ready_for_build(db, pid: str, n_arcs: int = 2):
+    """Project đã đủ premise/cast/world + n hồi rỗng → run rolling vào thẳng build."""
+    from app.models import Arc
+    db.add(Character(project_id=pid, name="Nhân"))
+    for m, kw in ((Location, {"name": "L"}), (Faction, {"name": "F"}),
+                  (Item, {"name": "I"}), (Ability, {"name": "Ab"}),
+                  (WorldEntity, {"name": "W"}),
+                  (StyleProfile, {"name": "S", "scope_type": "global"})):
+        db.add(m(project_id=pid, **kw))
+    ids = []
+    for i in range(1, n_arcs + 1):
+        a = Arc(project_id=pid, title=f"Hồi {i}", order_index=i)
+        db.add(a); await db.flush()
+        ids.append(a.id)
+    await db.commit()
+    return ids
+
+
+async def _status(client, pid: str):
+    return (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()
+
+
+@pytest.mark.asyncio
+async def test_flow_default_rolling_and_validation(client):
+    """flow mặc định rolling; giá trị lạ bị 422; batch chọn tường minh được."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                          json={"prompt": "x", "flow": "weird"})
+    assert r.status_code == 422
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"prompt": "x"})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    assert st["flow"] == "rolling" and st["pause_after_wave"] is False
+    async with SessionLocal() as db:
+        assert (await db.get(AuthoringRun, st["id"])).flow == "rolling"
+
+    pid2 = (await client.post("/api/v1/projects", json={"name": "T2"})).json()["id"]
+    (await client.post(f"/api/v1/projects/{pid2}/authoring/start",
+                       json={"prompt": "x", "flow": "batch"})).raise_for_status()
+    st2 = (await _status(client, pid2))["run"]
+    assert st2["flow"] == "batch"
+
+
+@pytest.mark.asyncio
+async def test_rolling_waves_arc_by_arc(client):
+    """Rolling: hồi 1 viết xong (chapter_facts) MỚI dàn chương hồi 2 —
+    không lên hết khung rồi mới viết như batch."""
+    from app.models import Arc
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        a1, a2 = await _seed_ready_for_build(db, pid, 2)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    run_id = st["id"]
+    assert st["flow"] == "rolling"
+
+    for _ in range(120):
+        r = await eng.tick(run_id)
+        cur = (await _status(client, pid))["run"]
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+        elif cur["status"] in {"complete", "failed"}:
+            break
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "complete" and cur["phase"] == "build"
+
+    async with SessionLocal() as db:
+        done = [s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid, AuthoringStep.status == "done")
+            .order_by(AuthoringStep.created_at))).all()]
+        chs_a1 = [c.id for c in (await db.scalars(select(Chapter).where(
+            Chapter.arc_id == a1))).all()]
+        assert not any(k.startswith("outline.skeleton") for k in done)  # arcs sẵn → skip
+        last_a1 = max(i for i, k in enumerate(done)
+                      if any(k == f"chapter_facts.{c}" for c in chs_a1))
+        first_a2 = done.index(f"outline.chapters.{a2}")
+        assert last_a1 < first_a2  # hồi 1 viết xong mới dàn hồi 2
+
+
+@pytest.mark.asyncio
+async def test_pause_after_wave_stops_at_boundary(client):
+    """Cờ 1-lần: hồi 1 viết xong → checkpoint chờ duyệt (không complete),
+    cờ tự tắt; approve → hồi 2 chạy tiếp."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        a1, a2 = await _seed_ready_for_build(db, pid, 2)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    run_id = st["id"]
+
+    # đặt cờ sớm — run vẫn running (premise/cast/world skip → vào build ngay)
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/pause-after-wave")
+    assert r.status_code == 200 and r.json()["pause_after_wave"] is True
+
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    assert r == "checkpoint"  # không phải complete — đây là ranh giới sóng
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review" and cur["phase"] == "build"
+    assert cur["pause_after_wave"] is False  # cờ 1-lần đã tự tắt
+    assert cur["wave_arc"] == a1            # sóng vừa dừng là hồi 1
+    # hồi 1 đã viết xong thật
+    async with SessionLocal() as db:
+        scs = [s for s in (await db.scalars(select(Scene).where(
+            Scene.project_id == pid))).all()
+            if (await db.get(Chapter, s.chapter_id)).arc_id == a1]
+        assert scs and all((s.prose or "").strip() for s in scs)
+
+    # approve → hồi 2 build tiếp → hết việc → complete
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "complete"
+    async with SessionLocal() as db:
+        assert f"outline.chapters.{a2}" in {s.step_key for s in (await db.scalars(
+            select(AuthoringStep).where(AuthoringStep.project_id == pid))).all()}
+
+
+@pytest.mark.asyncio
+async def test_regen_wave_only_deletes_current_arc(client):
+    """Tạo lại ở checkpoint sóng: chỉ xoá entity AI của hồi đang sóng —
+    hồi trước (đã viết + facts) nguyên vẹn."""
+    from app.models import Arc
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        a1, a2, a3 = await _seed_ready_for_build(db, pid, 3)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    run_id = st["id"]
+
+    # sóng 1 → checkpoint (cờ đặt sớm)
+    await client.post(f"/api/v1/projects/{pid}/authoring/pause-after-wave")
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    assert (await _status(client, pid))["run"]["status"] == "awaiting_review"
+    # approve → tick 1 lần để sóng 2 thật sự bắt đầu (wave_arc→a2),
+    # rồi mới đặt cờ — đặt sớm hơn sẽ bắn ngay ở ranh giới sóng 1→2 đang chờ
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    assert await eng.tick(run_id) == "step"
+    await client.post(f"/api/v1/projects/{pid}/authoring/pause-after-wave")
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review" and cur["wave_arc"] == a2
+
+    # snapshot hồi 1 — tài sản phải còn nguyên sau regen
+    async with SessionLocal() as db:
+        a1_chs = {c.id for c in (await db.scalars(select(Chapter).where(
+            Chapter.arc_id == a1))).all()}
+        a1_scs = {s.id for s in (await db.scalars(select(Scene).where(
+            Scene.chapter_id.in_(a1_chs)))).all()}
+        a1_evs = len([e for e in (await db.scalars(select(StoryEvent).where(
+            StoryEvent.project_id == pid))).all() if e.scene_id in a1_scs])
+        assert a1_chs and a1_scs and a1_evs
+
+    rg = await client.post(f"/api/v1/projects/{pid}/authoring/regenerate", json={})
+    assert rg.status_code == 200
+    async with SessionLocal() as db:
+        assert set((await db.scalars(select(Chapter.id).where(
+            Chapter.arc_id == a1))).all()) == a1_chs            # hồi 1 nguyên
+        assert set((await db.scalars(select(Scene.id).where(
+            Scene.chapter_id.in_(a1_chs)))).all()) == a1_scs
+        assert not (await db.scalars(select(Chapter).where(
+            Chapter.arc_id == a2))).all()                        # hồi 2 bị dọn
+        keys = {s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid))).all()}
+        assert f"outline.chapters.{a2}" not in keys              # step hồi 2 reset
+        assert any(k.startswith("chapter_facts.") for k in keys)  # facts hồi 1 còn
+        evs = len([e for e in (await db.scalars(select(StoryEvent).where(
+            StoryEvent.project_id == pid))).all() if e.scene_id in a1_scs])
+        assert evs == a1_evs                                     # facts hồi 1 nguyên
+
+    # run chạy lại → hồi 2 dựng lại từ đầu
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    async with SessionLocal() as db:
+        assert (await db.scalars(select(Chapter).where(
+            Chapter.arc_id == a2))).all()                        # hồi 2 dựng lại

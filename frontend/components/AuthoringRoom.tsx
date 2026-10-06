@@ -10,16 +10,23 @@ type Run = {
   id: string; phase: string; status: string; prompt: string;
   stage_payload?: any; last_error?: string; live: boolean;
   target_chapters?: number | null; words_per_scene?: number | null;
-  call_mode?: string | null;
+  call_mode?: string | null; flow?: string | null;
+  pause_after_wave?: boolean; wave_arc?: string | null;
   progress?: { scenes: number; with_prose: number };
 };
-type Status = { run: Run | null; steps: Step[]; phases: string[] };
+type ArcInfo = { id: string; title: string; state: string; chapters: number };
+type Ctx = {
+  premise?: Record<string, string>; skeleton?: any;
+  arcs?: ArcInfo[]; cast?: string[]; counts?: Record<string, number>;
+};
+type Status = { run: Run | null; steps: Step[]; phases: string[]; context?: Ctx };
 
 const PHASE_META: Record<string, { icon: string; label: string }> = {
   premise: { icon: "◈", label: "Tiền đề" },
   cast: { icon: "♙", label: "Nhân vật" },
   world: { icon: "◎", label: "Thế giới" },
   outline: { icon: "≋", label: "Dàn ý" },
+  build: { icon: "❖", label: "Dựng theo hồi" },
   writing: { icon: "✎", label: "Viết văn" },
 };
 
@@ -27,7 +34,19 @@ const PHASE_LINKS: Record<string, { href: string; label: string }> = {
   cast: { href: "/characters", label: "Mở Nhân vật" },
   world: { href: "/world", label: "Mở Thế giới" },
   outline: { href: "", label: "Mở Bản thảo" },
+  build: { href: "", label: "Mở Bản thảo" },
   writing: { href: "", label: "Mở Bản thảo" },
+};
+
+const FLOW_META: Record<string, { label: string; desc: string }> = {
+  rolling: {
+    label: "Theo sóng — từng hồi một",
+    desc: "Dàn hồi → viết hết hồi đó → hồi sau học theo văn đã viết. Chạy liên tục, có thể bấm dừng sau hồi đang viết.",
+  },
+  batch: {
+    label: "Toàn bộ — khung trước, viết sau",
+    desc: "Dàn hết toàn bộ chương/cảnh rồi mới viết. Duyệt khung một lần trước khi viết.",
+  },
 };
 
 export default function AuthoringRoom({ projectId, lang }: { projectId: string; lang: Lang }) {
@@ -37,6 +56,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
   const [targetCh, setTargetCh] = useState("");
   const [wordsScene, setWordsScene] = useState("900");
   const [callMode, setCallMode] = useState("safe");
+  const [flow, setFlow] = useState("rolling");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -120,6 +140,17 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               />
             </div>
             <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Cách chạy")}</label>
+              <select
+                value={flow}
+                onChange={(e) => setFlow(e.target.value)}
+                style={{ width: "100%" }}
+              >
+                <option value="rolling">{t(lang, FLOW_META.rolling.label)}</option>
+                <option value="batch">{t(lang, FLOW_META.batch.label)}</option>
+              </select>
+            </div>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
               <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Chế độ gọi AI")}</label>
               <select
                 value={callMode}
@@ -131,6 +162,9 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               </select>
             </div>
           </div>
+          <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>
+            {t(lang, FLOW_META[flow]?.desc ?? "")}
+          </p>
           {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
           <button
             className="btn primary"
@@ -140,6 +174,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               target_chapters: targetCh.trim() ? parseInt(targetCh, 10) : undefined,
               words_per_scene: wordsScene.trim() ? parseInt(wordsScene, 10) : undefined,
               call_mode: callMode,
+              flow: flow,
             })}
           >
             {busy ? t(lang, "Đang khởi động…") : t(lang, "Bắt đầu tạo truyện")}
@@ -188,9 +223,21 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 </small>
               )}
               <small style={{ color: "var(--muted)" }}>
+                {run.flow === "rolling" ? t(lang, FLOW_META.rolling.label) : t(lang, FLOW_META.batch.label)}
+                {" · "}
                 {run.call_mode === "fast" ? t(lang, "Nhanh — ít call (API mạnh)") : t(lang, "An toàn — nhiều call nhỏ")}
               </small>
             </div>
+            {run.phase === "build" && (data?.context?.arcs?.length ?? 0) > 0 && (
+              <div className="auth-waves" style={{ marginTop: 10 }}>
+                {(data!.context!.arcs!).map((a) => (
+                  <span key={a.id} className={`wave-chip ${a.state}`} title={a.title}>
+                    {a.state === "done" ? "✓" : a.state === "current" ? "▶" : "○"} {a.title}
+                    {a.chapters > 0 && <small> {a.chapters}ch</small>}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {run.stage_payload?.premise && (
               <div className="auth-payload">
@@ -254,6 +301,16 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               {run.status === "running" && (
                 <button className="btn" disabled={busy} onClick={() => act("pause")}>
                   {t(lang, "Tạm dừng")}
+                </button>
+              )}
+              {run.status === "running" && run.phase === "build" && (
+                <button
+                  className={`btn${run.pause_after_wave ? " primary" : ""}`}
+                  disabled={busy}
+                  title={t(lang, "Hồi đang viết xong thì dừng lại chờ duyệt — bấm lại để huỷ")}
+                  onClick={() => act("pause-after-wave")}
+                >
+                  {run.pause_after_wave ? t(lang, "✓ Sẽ dừng sau hồi này") : t(lang, "Dừng sau hồi này")}
                 </button>
               )}
               {(run.status === "paused" || run.status === "failed") && (

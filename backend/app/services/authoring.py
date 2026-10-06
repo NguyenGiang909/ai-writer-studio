@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import SessionLocal
@@ -36,6 +36,14 @@ from app.ai.compose import (
 )
 
 PHASES = ["premise", "cast", "world", "outline", "writing"]
+_PHASES_ROLLING = ["premise", "cast", "world", "build"]
+
+
+def phases_for(run) -> list[str]:
+    """Phase list theo flow của run. rolling: sau world là 1 phase 'build'
+    chạy sóng theo hồi (dàn → viết → facts) thay vì outline→writing riêng."""
+    return _PHASES_ROLLING if getattr(run, "flow", "batch") == "rolling" else PHASES
+
 
 # prefix step_key thuộc từng phase — dùng check "phase này có làm việc không"
 _PHASE_STEP_PREFIX = {
@@ -44,6 +52,7 @@ _PHASE_STEP_PREFIX = {
     "world": "world.",
     "outline": ("outline.", "chapter_scenes."),
     "writing": ("scene_write.", "chapter_facts."),
+    "build": ("outline.", "chapter_scenes.", "scene_write.", "chapter_facts."),
 }
 
 
@@ -122,6 +131,36 @@ _WORLD_PLAN = (
 )
 
 
+def _ch_step(f: Facts, ch) -> Step | None:
+    """Đơn vị thiếu đầu tiên TRONG một chương: dàn cảnh → viết từng cảnh → facts."""
+    scenes = f.scenes_by_chapter.get(ch.id, [])
+    if not scenes and f"chapter_scenes.{ch.id}" not in f.done:
+        return Step(f"chapter_scenes.{ch.id}", "chapter_outline",
+                    f"Dàn cảnh cho chương {ch.order_index}: {ch.title}", ch.id)
+    for sc in scenes:
+        if not (sc.prose or "").strip() and f"scene_write.{sc.id}" not in f.done:
+            return Step(f"scene_write.{sc.id}", "scene_expand",
+                        f"Viết cảnh “{sc.title or '?'}” (chương {ch.order_index})", sc.id)
+    if scenes and f"chapter_facts.{ch.id}" not in f.done:
+        return Step(f"chapter_facts.{ch.id}", "chapter_facts",
+                    f"Trích facts chương {ch.order_index}", ch.id)
+    return None
+
+
+def _arc_step(run: AuthoringRun, f: Facts, arc) -> Step | None:
+    """Đơn vị thiếu đầu tiên TRONG một hồi — đúng thứ tự người viết:
+    dàn chương → per chương [dàn cảnh → viết từng cảnh → trích facts]."""
+    chs = f.chapters_by_arc.get(arc.id, [])
+    if not chs and f"outline.chapters.{arc.id}" not in f.done:
+        return Step(f"outline.chapters.{arc.id}", "arc_chapters",
+                    f"Dàn chương hồi “{arc.title}”", arc.id)
+    for ch in chs:
+        s = _ch_step(f, ch)
+        if s:
+            return s
+    return None
+
+
 def next_step(run: AuthoringRun, f: Facts) -> Step | None:
     """Pure route — trả None khi phase hiện tại đã hết việc (checkpoint/complete).
 
@@ -167,6 +206,28 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
                 return Step(f"chapter_scenes.{ch.id}", "chapter_outline",
                             f"Dàn cảnh cho chương {ch.order_index}: {ch.title}", ch.id)
         return None
+    if ph == "build":
+        # rolling: skeleton 1 lần làm bản đồ đường, rồi sóng theo hồi —
+        # hồi sau được dàn SAU KHI hồi trước viết xong → prompt thấy facts thật
+        if not f.chapters and not f.arcs and "outline.skeleton" not in f.done:
+            return Step("outline.skeleton", "book_outline", "Sinh khung Quyển/Hồi")
+        ctx = _premise_ctx(run)
+        cur = ctx.get("wave_arc")
+        target = next((a for a in f.arcs if _arc_step(run, f, a) is not None), None)
+        if target is None:
+            # hết hồi → chương mồ côi (tác giả tự thêm ngoài hồi) vẫn được build
+            och = next((c for c in f.chapters
+                        if not c.arc_id and _ch_step(f, c) is not None), None)
+            return _ch_step(f, och) if och else None
+        if cur != target.id:
+            if run.pause_after_wave and cur:
+                # sentinel — tick đổi thành checkpoint + cờ 1 lần xoá tại đó
+                # (build là phase cuối nên return None = complete, không phải pause)
+                return Step("__wave_pause__", "noop",
+                            "Dừng ở ranh giới sóng theo yêu cầu")
+            ctx["wave_arc"] = target.id
+            run.cursor_json = json.dumps(ctx, ensure_ascii=False)
+        return _arc_step(run, f, target)
     if ph == "writing":
         for ch in f.chapters:
             scenes = f.scenes_by_chapter.get(ch.id, [])
@@ -604,6 +665,34 @@ async def h_outline_skeleton(db, run, step):
     return {"volumes": len(vols), "arcs": n_arcs}
 
 
+async def _written_ctx(db, run) -> str:
+    """Diễn biến truyện ĐÃ VIẾT — events/states/threads mới nhất.
+
+    Sống nhờ rolling: hồi sau được dàn khi hồi trước đã có prose + facts,
+    nên prompt thấy truyện thật (ai chết, tuyến nào vừa khép/mở) thay vì
+    chỉ thấy title chương — khung khỏi lệch thực tế."""
+    evs = list((await db.scalars(select(StoryEvent).where(
+        StoryEvent.project_id == run.project_id).order_by(
+        StoryEvent.narrative_order.desc(), StoryEvent.id.desc()))).all()[:15])
+    if not evs:
+        return ""
+    lines = ["SỰ KIỆN GẦN NHẤT (đã viết):"]
+    for e in reversed(evs):
+        lines.append(f"- {e.summary}")
+    sts = list((await db.scalars(select(StoryState).where(
+        StoryState.project_id == run.project_id).order_by(
+        StoryState.narrative_order.desc(), StoryState.id.desc()))).all()[:12])
+    if sts:
+        lines.append("TRẠNG THÁI MỚI NHẤT:")
+        for s in reversed(sts):
+            lines.append(f"- {s.entity_type} {s.key}: {s.value_text}")
+    ths = list((await db.scalars(select(Thread).where(
+        Thread.project_id == run.project_id, Thread.status == "OPEN"))).all()[:12])
+    if ths:
+        lines.append("THREAD ĐANG MỞ: " + ", ".join(t.title for t in ths))
+    return "\n".join(lines)[:2400]
+
+
 async def h_arc_chapters(db, run, step):
     arc = await db.get(Arc, step.ref_id)
     if not arc:
@@ -618,12 +707,14 @@ async def h_arc_chapters(db, run, step):
     want = arc_meta.get("chapter_count")
     # truyện dài: chỉ cần ~30 chương gần nhất để nối mạch — tránh prompt phình
     recent = existing[-30:]
+    written = await _written_ctx(db, run)
     prompt = (f"=== PREMISE ===\n{json.dumps({k: v for k, v in ctx.items() if k != 'skeleton'}, ensure_ascii=False)}\n\n"
               f"=== KHUNG TRUYỆN ===\n{json.dumps(skeleton, ensure_ascii=False)[:3000]}\n\n"
               f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20]) + "\n\n"
               f"=== DANH SÁCH CHƯƠNG ĐÃ DÀN (gần nhất) ===\n"
-              + ("\n".join(recent) or "(chưa có)") + "\n\n"
-              f"=== HỒI CẦN DÀN ===\n{arc.title}"
+              + ("\n".join(recent) or "(chưa có)")
+              + (f"\n\n=== DIỄN BIẾN ĐÃ VIẾT ===\n{written}" if written else "")
+              + f"\n\n=== HỒI CẦN DÀN ===\n{arc.title}"
               + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get("goal") else "")
               + (f" — ~{want} chương" if want else "")
               + "\n\nDàn chương cho hồi này theo schema.")
@@ -784,8 +875,22 @@ async def tick(run_id: str) -> str:
         run = await db.get(AuthoringRun, run_id)
         if not run or run.status != "running":
             return "stopped"
+        # step "running" sót lại từ process chết trước = gián đoạn → "interrupted"
+        # (không tính failed → retry sạch, không nuốt quota 2-lần-fail)
+        await db.execute(
+            update(AuthoringStep).where(
+                AuthoringStep.run_id == run_id,
+                AuthoringStep.status == "running")
+            .values(status="interrupted", error="process restart/crash",
+                    finished_at=datetime.utcnow()))
         facts = await load_facts(db, run)
         step = next_step(run, facts)
+        if step is not None and step.key == "__wave_pause__":
+            # cờ 1-lần pause_after_wave vừa bắn — checkpoint để tác giả chen vào
+            run.pause_after_wave = False
+            run.status = "awaiting_review"
+            await db.commit()
+            return "checkpoint"
         if step is not None and facts.failed.get(step.key, 0) >= 2:
             run.status = "failed"
             run.last_error = f"{step.key}: fail quá 2 lần — cần sửa rồi resume"
@@ -796,27 +901,45 @@ async def tick(run_id: str) -> str:
             # → tự sang phase kế, không bắt tác giả duyệt checkpoint rỗng
             produced = any(k.startswith(_PHASE_STEP_PREFIX[run.phase])
                            for k in facts.run_done)
-            idx = PHASES.index(run.phase)
-            if idx >= len(PHASES) - 1:
+            phs = phases_for(run)
+            idx = phs.index(run.phase)
+            if idx >= len(phs) - 1:
                 run.status = "complete"
             elif not produced:
-                run.phase = PHASES[idx + 1]
+                run.phase = phs[idx + 1]
             else:
                 run.status = "awaiting_review"
             await db.commit()
             if run.status == "running":
                 return "step"  # loop tiếp trong phase mới
             return "complete" if run.status == "complete" else "checkpoint"
+        # step-row "running" COMMIT RIÊNG (txn ngắn) — không giữ write lock
+        # trong suốt model call ~1 phút, writer khác (tác giả sửa tay) vẫn vào được
+        srow = AuthoringStep(run_id=run.id, project_id=run.project_id,
+                             step_key=step.key, status="running")
+        db.add(srow)
+        await db.commit()
+        sid = srow.id
         try:
             out = await (HANDLERS.get(step.key) or HANDLERS[step.task])(db, run, step)
-            await mark_done(db, run, step, out)
+            srow = await db.get(AuthoringStep, sid)
+            srow.status = "done"
+            srow.finished_at = datetime.utcnow()
+            srow.output_json = json.dumps(out, ensure_ascii=False) if out else None
+            run = await db.get(AuthoringRun, run_id)
             run.last_error = None
         except Exception as e:  # noqa: BLE001 — step fail không giết run
             await db.rollback()  # step atomic — entity ghi dở không được lọt vào DB
             run = await db.get(AuthoringRun, run_id)  # rollback expire object → re-fetch
             if run is None:
                 return "stopped"
-            await mark_failed(db, run, step, str(e))
+            srow = await db.get(AuthoringStep, sid)
+            if srow:
+                srow.status = "failed"
+                srow.error = str(e)[:2000]
+                srow.finished_at = datetime.utcnow()
+            else:  # edge: row mất → ghi failed mới như cũ
+                await mark_failed(db, run, step, str(e))
             run.last_error = f"{step.key}: {e}"
         await db.commit()
         return "step"
@@ -863,34 +986,105 @@ _ENTITY_MODEL = {
 }
 
 
+async def _regen_wave(db, run, hint):
+    """Tạo lại HỒI ĐANG SÓNG (build checkpoint) — xoá chapters/scenes/facts
+    AI tạo trong hồi đó, reset wave cursor về hồi này, chạy lại.
+    Không đụng hồi trước — facts đã viết là ground truth."""
+    ctx = _premise_ctx(run)
+    arc_id = ctx.get("wave_arc")
+    if not arc_id:
+        raise ValueError("không xác định được hồi đang sóng để tạo lại")
+    arc = await db.get(Arc, arc_id)
+    if not arc:
+        raise ValueError("hồi đang sóng không còn tồn tại")
+    # chỉ entity do RUN này tạo — chương/cảnh tác giả tự thêm không bị xoá
+    async def prov_ids(et):
+        return set((await db.scalars(select(EntityProvenance.entity_id).where(
+            EntityProvenance.run_id == run.id,
+            EntityProvenance.entity_type == et))).all())
+    ch_prov = await prov_ids("chapter")
+    chs = [c for c in (await db.scalars(select(Chapter).where(
+        Chapter.arc_id == arc_id))).all() if c.id in ch_prov]
+    ch_ids = [c.id for c in chs]
+    ch_orders = [c.order_index for c in chs]
+    sc_prov = await prov_ids("scene")
+    sc_ids = [s for s in (await db.scalars(select(Scene.id).where(
+        Scene.chapter_id.in_(ch_ids)))).all() if s in sc_prov] if ch_ids else []
+    if sc_ids:
+        from app.models.manuscript import SceneVersion
+        await db.execute(delete(SceneVersion).where(SceneVersion.scene_id.in_(sc_ids)))
+        # facts gắn scene của hồi này — event/beat/canon theo scene_id,
+        # state theo narrative_order của chương (StoryState không có scene_id)
+        await db.execute(delete(StoryEvent).where(StoryEvent.scene_id.in_(sc_ids)))
+        await db.execute(delete(ThreadBeat).where(ThreadBeat.scene_id.in_(sc_ids)))
+        await db.execute(delete(CanonFact).where(CanonFact.source_scene_id.in_(sc_ids)))
+        await db.execute(delete(Scene).where(Scene.id.in_(sc_ids)))
+    if ch_orders:
+        await db.execute(delete(StoryState).where(
+            StoryState.project_id == run.project_id,
+            StoryState.narrative_order.in_(ch_orders)))
+    if ch_ids:
+        await db.execute(delete(Chapter).where(Chapter.id.in_(ch_ids)))
+    for et, ids in (("scene", sc_ids), ("chapter", ch_ids)):
+        if ids:
+            await db.execute(delete(EntityProvenance).where(
+                EntityProvenance.run_id == run.id,
+                EntityProvenance.entity_id.in_(ids)))
+    # facts' provenance rows — entity_id là id row fact (đã xoá); dọn mồ côi
+    for et in ("story_event", "story_state", "thread_beat", "canon_fact"):
+        model = {"story_event": StoryEvent, "story_state": StoryState,
+                 "thread_beat": ThreadBeat, "canon_fact": CanonFact}[et]
+        orphans = (await db.scalars(select(EntityProvenance.entity_id).where(
+            EntityProvenance.run_id == run.id,
+            EntityProvenance.entity_type == et))).all()
+        gone = [i for i in orphans if not await db.get(model, i)]
+        if gone:
+            await db.execute(delete(EntityProvenance).where(
+                EntityProvenance.entity_id.in_(gone)))
+    keys = [f"outline.chapters.{arc_id}"]
+    keys += [f"chapter_scenes.{c}" for c in ch_ids]
+    keys += [f"chapter_facts.{c}" for c in ch_ids]
+    keys += [f"scene_write.{s}" for s in sc_ids]
+    if keys:
+        await db.execute(delete(AuthoringStep).where(
+            AuthoringStep.run_id == run.id, AuthoringStep.step_key.in_(keys)))
+    ctx["wave_arc"] = arc_id
+    if hint:
+        ctx["author_hint"] = hint
+    run.cursor_json = json.dumps(ctx, ensure_ascii=False)
+
+
 async def regenerate(db: AsyncSession, run: AuthoringRun, hint: str | None = None):
     """Tạo lại stage hiện tại khi đang checkpoint — xoá entity AI của stage,
     xoá step đã xong, đưa hint vào premise context, rồi chạy lại."""
     phase = run.phase
-    if phase not in _REGEN_TYPES:
+    if phase == "build":
+        await _regen_wave(db, run, hint)
+    elif phase not in _REGEN_TYPES:
         raise ValueError("không thể tạo lại stage writing — prose/facts đã ghi")
-    for et in _REGEN_TYPES[phase]:
-        model = _ENTITY_MODEL[et]
-        ids = list((await db.scalars(select(EntityProvenance.entity_id).where(
-            EntityProvenance.run_id == run.id,
-            EntityProvenance.entity_type == et))).all())
-        if not ids:
-            continue
-        if et == "scene":
-            from app.models.manuscript import SceneVersion
-            await db.execute(delete(SceneVersion).where(SceneVersion.scene_id.in_(ids)))
-        await db.execute(delete(model).where(model.id.in_(ids)))
-        await db.execute(delete(EntityProvenance).where(
-            EntityProvenance.run_id == run.id, EntityProvenance.entity_type == et))
-    for prefix in _REGEN_STEPS[phase]:
-        await db.execute(delete(AuthoringStep).where(
-            AuthoringStep.run_id == run.id,
-            AuthoringStep.step_key.like(f"{prefix}%")))
-    if hint and phase != "premise":
+    else:
+        for et in _REGEN_TYPES[phase]:
+            model = _ENTITY_MODEL[et]
+            ids = list((await db.scalars(select(EntityProvenance.entity_id).where(
+                EntityProvenance.run_id == run.id,
+                EntityProvenance.entity_type == et))).all())
+            if not ids:
+                continue
+            if et == "scene":
+                from app.models.manuscript import SceneVersion
+                await db.execute(delete(SceneVersion).where(SceneVersion.scene_id.in_(ids)))
+            await db.execute(delete(model).where(model.id.in_(ids)))
+            await db.execute(delete(EntityProvenance).where(
+                EntityProvenance.run_id == run.id, EntityProvenance.entity_type == et))
+        for prefix in _REGEN_STEPS[phase]:
+            await db.execute(delete(AuthoringStep).where(
+                AuthoringStep.run_id == run.id,
+                AuthoringStep.step_key.like(f"{prefix}%")))
+    if hint and phase not in {"premise", "build"}:
         ctx = _premise_ctx(run)
         ctx["author_hint"] = hint
         run.cursor_json = json.dumps(ctx, ensure_ascii=False)
-    elif hint:
+    elif hint and phase == "premise":
         run.prompt = f"{run.prompt}\n[Gợi ý chỉnh: {hint}]"
     run.stage_payload_json = None
     run.status = "running"

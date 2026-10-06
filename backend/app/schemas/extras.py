@@ -109,5 +109,8 @@ class AuthoringStartRequest(BaseModel):
     words_per_scene:int|None=Field(default=None,ge=200,le=5000)
     # safe = call nhỏ theo đơn vị (mặc định); fast = call gộp lớn khi API mạnh
     call_mode:str|None=Field(default="safe",pattern="^(safe|fast)$")
+    # rolling = sóng theo hồi, hồi sau học văn đã viết (mặc định cho run mới);
+    # batch = lên toàn bộ khung trước rồi viết
+    flow:str|None=Field(default="rolling",pattern="^(batch|rolling)$")
 class AuthoringRegenerateRequest(BaseModel):
     hint:str|None=Field(default=None,max_length=2000)

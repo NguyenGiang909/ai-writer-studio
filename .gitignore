@@ -10,6 +10,8 @@ __pycache__/
 .env.*.local
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 writer.db
 *.log
 
