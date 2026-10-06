@@ -30,7 +30,8 @@ from app.models.narrative import Thread, ThreadBeat
 from app.models.memory import AiTurn
 from app.ai.router import ModelRouter, ModelRequest
 from app.ai.compose import (
-    build_story_prompt, WORLD_PLACES_SYSTEM, WORLD_RULES_SYSTEM, WORLD_LORE_SYSTEM,
+    build_story_prompt, WORLD_GEN_SYSTEM,
+    WORLD_PLACES_SYSTEM, WORLD_RULES_SYSTEM, WORLD_LORE_SYSTEM,
     OUTLINE_SKELETON_SYSTEM, OUTLINE_ARC_SYSTEM,
 )
 
@@ -136,6 +137,11 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
             return Step("cast.generate", "cast_gen", "Sinh nhân vật + quan hệ")
         return None
     if ph == "world":
+        # fast (API mạnh): 1 call gộp — chỉ khi world còn trống; thiếu lẻ vẫn granular
+        if run.call_mode == "fast" and not f.world_parts \
+                and "world.generate" not in f.done:
+            return Step("world.generate", "world_gen",
+                        "Sinh toàn bộ thế giới (1 call)")
         # tách 3 call nhỏ, mỗi call chỉ sinh mảng còn thiếu (covers - world_parts)
         # → chống gateway timeout + continue-mode bù đúng loại thiếu, không gọi lại
         for key, covers, detail in _WORLD_PLAN:
@@ -143,6 +149,11 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
                 return Step(key, "world_gen", detail)
         return None
     if ph == "outline":
+        # fast: 1 call toàn bộ khung — chỉ khi chưa có gì; còn lại vẫn granular
+        if run.call_mode == "fast" and not f.chapters and not f.arcs \
+                and "outline.generate" not in f.done:
+            return Step("outline.generate", "book_outline",
+                        "Sinh toàn bộ khung truyện (1 call)")
         # tách 2 tầng chống timeout: skeleton quyển/hồi → dàn chương từng hồi
         if not f.chapters and not f.arcs and "outline.skeleton" not in f.done:
             return Step("outline.skeleton", "book_outline", "Sinh khung Quyển/Hồi")
@@ -458,6 +469,98 @@ async def _facts_parts(db, run) -> set[str]:
     return parts
 
 
+async def h_world_all(db, run, step):
+    """Fast mode: 1 call toàn bộ world — chỉ route tới khi world còn trống."""
+    prompt = _world_prompt(run, _premise_ctx(run), await _world_ctx(db, run),
+                           await _cast_names(db, run),
+                           "locations, factions, items, abilities, lore, style")
+    text, _ = await ai_call(db, run, "world_gen", prompt, system=WORLD_GEN_SYSTEM)
+    data = parse_json(text)
+    n = 0
+    n += await _write_world_rows(db, run, Location, "location",
+        data.get("locations"),
+        lambda r, name: Location(project_id=run.project_id, name=name,
+                                 description=r.get("description")), 20)
+    n += await _write_world_rows(db, run, Faction, "faction",
+        data.get("factions"),
+        lambda r, name: Faction(project_id=run.project_id, name=name,
+                                description=r.get("description")), 15)
+    n += await _write_world_rows(db, run, Item, "item",
+        data.get("items"),
+        lambda r, name: Item(project_id=run.project_id, name=name,
+                             description=r.get("description")), 15)
+    n += await _write_world_rows(db, run, Ability, "ability",
+        data.get("abilities"),
+        lambda r, name: Ability(project_id=run.project_id, name=name,
+                                ability_type=_clip(r.get("type"), 64),
+                                can_do=r.get("can_do"), cannot_do=r.get("cannot_do"),
+                                limits=r.get("limits"), cost=r.get("cost"),
+                                conditions=r.get("conditions")), 15)
+    n += await _write_world_rows(db, run, WorldEntity, "world_entity",
+        data.get("lore"),
+        lambda r, name: WorldEntity(project_id=run.project_id, name=name,
+                                    entity_type=_clip(r.get("type"), 64) or "lore",
+                                    description=r.get("description")), 15)
+    if data.get("style"):
+        sp = StyleProfile(project_id=run.project_id, name="AI default",
+                          scope_type="global", instructions=_clip(json.dumps(
+                              data["style"], ensure_ascii=False), 2000))
+        db.add(sp); await db.flush(); provenance(db, run, "style_profile", sp.id)
+        n += 1
+    run.stage_payload_json = json.dumps({"created": n}, ensure_ascii=False)
+    return {"created": n}
+
+
+async def h_outline_all(db, run, step):
+    """Fast mode: 1 call toàn bộ khung quyển/hồi/chương — chỉ khi chưa có gì."""
+    premise = _premise_ctx(run)
+    chars = await _cast_names(db, run)
+    goal = (f"\n\n=== MỤC TIÊU ===\nTổng số chương mong muốn: ~{run.target_chapters}. "
+            f"Dàn quyển/hồi/chương sát mục tiêu này (được lệch nếu cốt truyện cần)."
+            if run.target_chapters else "")
+    prompt = (f"=== PREMISE ===\n{json.dumps(premise, ensure_ascii=False)}\n\n"
+              f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20])
+              + goal + "\n\nSinh khung truyện đầy đủ theo schema.")
+    text, _ = await ai_call(db, run, "book_outline", prompt)
+    data = parse_json(text)
+    vols = data.get("volumes") or []
+    if not vols:
+        raise ValueError("model không trả outline hợp lệ")
+    vol_order = max((v.order_index for v in (await db.scalars(select(Volume).where(
+        Volume.project_id == run.project_id))).all()), default=0)
+    arc_order = max((a.order_index for a in (await db.scalars(select(Arc).where(
+        Arc.project_id == run.project_id))).all()), default=0)
+    ch_order = max((c.order_index for c in (await db.scalars(select(Chapter).where(
+        Chapter.project_id == run.project_id))).all()), default=0)
+    ctx = _premise_ctx(run)
+    beats = ctx.get("beats") or {}
+    n_ch = 0
+    for vi, v in enumerate(vols[:10], start=1):
+        vol = Volume(project_id=run.project_id, title=_clip(v.get("title"), 240) or f"Quyển {vi}",
+                     order_index=vol_order + vi)
+        db.add(vol); await db.flush(); provenance(db, run, "volume", vol.id)
+        for a in (v.get("arcs") or [])[:10]:
+            arc_order += 1
+            arc = Arc(project_id=run.project_id, volume_id=vol.id,
+                      title=_clip(a.get("title"), 240) or f"Hồi {arc_order}",
+                      order_index=arc_order)
+            db.add(arc); await db.flush(); provenance(db, run, "arc", arc.id)
+            for c in (a.get("chapters") or [])[:40]:
+                ch_order += 1
+                ch = Chapter(project_id=run.project_id, volume_id=vol.id, arc_id=arc.id,
+                             title=_clip(c.get("title"), 240) or f"Chương {ch_order}",
+                             order_index=ch_order, status="draft")
+                db.add(ch); await db.flush(); provenance(db, run, "chapter", ch.id)
+                if c.get("beat"):
+                    beats[ch.id] = c["beat"]
+                n_ch += 1
+    ctx["beats"] = beats
+    run.cursor_json = json.dumps(ctx, ensure_ascii=False)
+    run.stage_payload_json = json.dumps(
+        {"volumes": len(vols), "chapters": n_ch}, ensure_ascii=False)
+    return {"volumes": len(vols), "chapters": n_ch}
+
+
 async def h_outline_skeleton(db, run, step):
     premise = _premise_ctx(run)
     chars = await _cast_names(db, run)
@@ -662,8 +765,9 @@ async def h_chapter_facts(db, run, step):
 HANDLERS = {
     "premise": h_premise, "cast_gen": h_cast,
     "world.places": h_world_places, "world.rules": h_world_rules,
-    "world.lore": h_world_lore,
-    "outline.skeleton": h_outline_skeleton, "arc_chapters": h_arc_chapters,
+    "world.lore": h_world_lore, "world.generate": h_world_all,
+    "outline.skeleton": h_outline_skeleton, "outline.generate": h_outline_all,
+    "arc_chapters": h_arc_chapters,
     "chapter_outline": h_chapter_scenes,
     "scene_expand": h_scene_write, "chapter_facts": h_chapter_facts,
 }

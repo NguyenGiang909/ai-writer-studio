@@ -10,6 +10,7 @@ type Run = {
   id: string; phase: string; status: string; prompt: string;
   stage_payload?: any; last_error?: string; live: boolean;
   target_chapters?: number | null; words_per_scene?: number | null;
+  call_mode?: string | null;
   progress?: { scenes: number; with_prose: number };
 };
 type Status = { run: Run | null; steps: Step[]; phases: string[] };
@@ -35,6 +36,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
   const [hint, setHint] = useState("");
   const [targetCh, setTargetCh] = useState("");
   const [wordsScene, setWordsScene] = useState("900");
+  const [callMode, setCallMode] = useState("safe");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -117,6 +119,17 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 style={{ width: "100%" }}
               />
             </div>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Chế độ gọi AI")}</label>
+              <select
+                value={callMode}
+                onChange={(e) => setCallMode(e.target.value)}
+                style={{ width: "100%" }}
+              >
+                <option value="safe">{t(lang, "An toàn — nhiều call nhỏ")}</option>
+                <option value="fast">{t(lang, "Nhanh — ít call (API mạnh)")}</option>
+              </select>
+            </div>
           </div>
           {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
           <button
@@ -126,6 +139,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               prompt: prompt.trim() || undefined,
               target_chapters: targetCh.trim() ? parseInt(targetCh, 10) : undefined,
               words_per_scene: wordsScene.trim() ? parseInt(wordsScene, 10) : undefined,
+              call_mode: callMode,
             })}
           >
             {busy ? t(lang, "Đang khởi động…") : t(lang, "Bắt đầu tạo truyện")}
@@ -173,6 +187,9 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                   {run.target_chapters ? ` · ${t(lang, "mục tiêu ~")}${run.target_chapters} ${t(lang, "chương")}` : ""}
                 </small>
               )}
+              <small style={{ color: "var(--muted)" }}>
+                {run.call_mode === "fast" ? t(lang, "Nhanh — ít call (API mạnh)") : t(lang, "An toàn — nhiều call nhỏ")}
+              </small>
             </div>
 
             {run.stage_payload?.premise && (

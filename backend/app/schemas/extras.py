@@ -107,5 +107,7 @@ class AuthoringStartRequest(BaseModel):
     prompt:str|None=Field(default=None,max_length=4000); name:str|None=None
     target_chapters:int|None=Field(default=None,ge=1,le=500)
     words_per_scene:int|None=Field(default=None,ge=200,le=5000)
+    # safe = call nhỏ theo đơn vị (mặc định); fast = call gộp lớn khi API mạnh
+    call_mode:str|None=Field(default="safe",pattern="^(safe|fast)$")
 class AuthoringRegenerateRequest(BaseModel):
     hint:str|None=Field(default=None,max_length=2000)

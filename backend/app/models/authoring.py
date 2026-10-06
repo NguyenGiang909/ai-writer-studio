@@ -22,6 +22,8 @@ class AuthoringRun(Base):
     # goal do tác giả đặt — định hướng generate, không phải cap cứng
     target_chapters: Mapped[int | None] = mapped_column(Integer)
     words_per_scene: Mapped[int | None] = mapped_column(Integer)
+    # safe = call nhỏ theo đơn vị (mặc định, chống timeout); fast = call gộp (API mạnh)
+    call_mode: Mapped[str] = mapped_column(String(16), default="safe")
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

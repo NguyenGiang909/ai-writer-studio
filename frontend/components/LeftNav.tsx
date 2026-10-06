@@ -7,6 +7,7 @@ import { API, getJSON } from "../lib/api";
 
 const NAV = [
   { suffix: "", icon: "✎", label: "Bản thảo", exact: true },
+  { suffix: "/authoring", icon: "✧", label: "Tạo truyện (AI)", badge: "authoring" },
   { suffix: "/read", icon: "❖", label: "Đọc lại" },
   { suffix: "/story", icon: "◇", label: "Thiết kế truyện" },
   { suffix: "/characters", icon: "♙", label: "Nhân vật" },
@@ -19,7 +20,6 @@ const NAV = [
 ];
 
 const EXTRA_NAV = [
-  { suffix: "/authoring", icon: "✦", label: "Tạo truyện (AI)" },
   { suffix: "/truth", icon: "◈", label: "Canon & Truth" },
   { suffix: "/discussions", icon: "✦", label: "Thảo luận AI" },
   { suffix: "/signals", icon: "♒", label: "Dấu hiệu" },
@@ -44,9 +44,14 @@ export default async function LeftNav({
 }) {
   const badges: Record<string, number> = { threads: openThreads, pending: pendingCount };
   let aiIds: string[] | undefined;
+  let authoringStatus: string | null = null;
   try {
     const prov = await getJSON(`/api/v1/projects/${projectId}/authoring/provenance`);
     if (prov?.items?.length) aiIds = prov.items.map((i: any) => i.entity_id);
+  } catch {}
+  try {
+    const st = await getJSON(`/api/v1/projects/${projectId}/authoring/status`);
+    if (st?.run?.status && st.run.status !== "completed") authoringStatus = st.run.status;
   } catch {}
   return (
     <aside className="left">
@@ -58,7 +63,9 @@ export default async function LeftNav({
       {NAV.map((n) => (
         <NavLink key={n.suffix} href={`/projects/${projectId}${n.suffix}`} exact={n.exact} className="nav-item">
           <span>{n.icon}</span> {t(lang, n.label)}
-          {n.badge && badges[n.badge] > 0 && <small>{badges[n.badge]}</small>}
+          {n.badge === "authoring"
+            ? authoringStatus && <small title={t(lang, "Đang có phiên tạo truyện")}>{authoringStatus === "running" ? "●" : authoringStatus === "awaiting_review" ? "⏸" : "⚠"}</small>
+            : n.badge && badges[n.badge] > 0 && <small>{badges[n.badge]}</small>}
         </NavLink>
       ))}
       <details className="nav-extra">

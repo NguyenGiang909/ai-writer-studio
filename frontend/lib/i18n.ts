@@ -850,4 +850,8 @@ const EN: Record<string, string> = {
   "Tiếp tục": "Resume",
   "Nhật ký bước": "Step log",
   "Chưa có bước nào.": "No steps yet.",
+  "Chế độ gọi AI": "AI call mode",
+  "An toàn — nhiều call nhỏ": "Safe — many small calls",
+  "Nhanh — ít call (API mạnh)": "Fast — fewer calls (strong API)",
+  "Đang có phiên tạo truyện": "Authoring session in progress",
 };

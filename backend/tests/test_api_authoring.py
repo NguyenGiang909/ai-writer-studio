@@ -25,10 +25,10 @@ async def _pump(client, run_id: str, max_ticks: int = 60):
     return r
 
 
-async def _drive(client, pid: str):
+async def _drive(client, pid: str, start_json: dict | None = None):
     """Start → chạy tới hết pipeline, approve ở mỗi checkpoint."""
     (await client.post(f"/api/v1/projects/{pid}/authoring/start",
-                       json={"prompt": "người mất ký ức tìm lại chính mình"})).raise_for_status()
+                       json=start_json or {"prompt": "người mất ký ức tìm lại chính mình"})).raise_for_status()
     st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()
     run_id = st["run"]["id"]
     assert st["run"]["phase"] == "premise" and st["run"]["status"] == "running"
@@ -549,3 +549,55 @@ async def test_goals_reach_prompts(client):
     # status trả progress
     st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
     assert st["progress"]["scenes"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_call_mode_default_safe_and_validation(client):
+    """call_mode mặc định safe; giá trị lạ bị 422; status trả đúng mode."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                          json={"prompt": "x", "call_mode": "turbo"})
+    assert r.status_code == 422
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"prompt": "x"})).raise_for_status()
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert st["call_mode"] == "safe"
+    async with SessionLocal() as db:
+        run = await db.get(AuthoringRun, st["id"])
+        assert run.call_mode == "safe"
+
+
+@pytest.mark.asyncio
+async def test_fast_mode_uses_grouped_calls(client):
+    """fast: world + outline gộp 1 call mỗi stage; phần thiếu vẫn granular bù."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    run_id, log = await _drive(client, pid, {"prompt": "kẻ trộm ký ức",
+                                           "call_mode": "fast"})
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert st["status"] == "complete" and st["call_mode"] == "fast"
+
+    async with SessionLocal() as db:
+        keys = {s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.run_id == run_id))).all()}
+        assert "world.generate" in keys
+        assert "outline.generate" in keys
+        assert not any(k.startswith("world.places") for k in keys)
+        assert "outline.skeleton" not in keys
+        # fake outline trả chapter_count (không dàn chương) → per-arc vẫn bù
+        assert any(k.startswith("outline.chapters.") for k in keys)
+        chapters = (await db.scalars(select(Chapter).where(
+            Chapter.project_id == pid))).all()
+        assert len(chapters) == 2
+
+
+@pytest.mark.asyncio
+async def test_safe_mode_uses_split_calls(client):
+    """safe: world 3 sub-step + outline skeleton/arc — không call gộp."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    run_id, log = await _drive(client, pid)
+    async with SessionLocal() as db:
+        keys = {s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.run_id == run_id))).all()}
+        assert {"world.places", "world.rules", "world.lore"} <= keys
+        assert "outline.skeleton" in keys
+        assert "world.generate" not in keys and "outline.generate" not in keys

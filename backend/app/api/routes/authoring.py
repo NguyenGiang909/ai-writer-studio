@@ -43,7 +43,8 @@ async def start(pid: str, p: AuthoringStartRequest, db: AsyncSession = Depends(g
     run = AuthoringRun(project_id=pid, prompt=prompt,
                        phase="premise", status="running",
                        target_chapters=p.target_chapters,
-                       words_per_scene=p.words_per_scene)
+                       words_per_scene=p.words_per_scene,
+                       call_mode=p.call_mode or "safe")
     db.add(run)
     await db.commit()
     await db.refresh(run)
@@ -80,6 +81,7 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
             "prompt": run.prompt, "stage_payload": payload,
             "target_chapters": run.target_chapters,
             "words_per_scene": run.words_per_scene,
+            "call_mode": run.call_mode,
             "progress": {"scenes": n_scenes or 0, "with_prose": n_prose or 0},
             "last_error": run.last_error, "created_at": str(run.created_at),
             "updated_at": str(run.updated_at), "live": eng.is_live(run.id),
