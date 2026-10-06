@@ -412,3 +412,50 @@ async def test_chapter_facts_writes_canon_and_beats(client):
         prov_types = {p.entity_type for p in (await db.scalars(select(EntityProvenance).where(
             EntityProvenance.project_id == pid))).all()}
         assert {"story_event", "canon_fact", "thread_beat"} <= prov_types
+
+
+@pytest.mark.asyncio
+async def test_goals_reach_prompts(client):
+    """target_chapters → outline prompt; words_per_scene → scene_write prompt."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start", json={
+        "prompt": "hải trình cuối", "target_chapters": 12, "words_per_scene": 1500})
+    assert r.status_code == 200
+    run_id = r.json()["run_id"]
+
+    # chạy tới hết outline
+    for _ in range(60):
+        await eng.tick(run_id)
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] == "awaiting_review" and cur["phase"] == "outline":
+            break
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+
+    async with SessionLocal() as db:
+        from app.models.memory import AiTurn
+        turns = (await db.scalars(select(AiTurn).where(
+            AiTurn.project_id == pid, AiTurn.task == "book_outline"))).all()
+        assert turns and "~12" in turns[-1].prompt_excerpt
+
+    # approve outline → writing: check scene_write prompt mang độ dài mục tiêu
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    for _ in range(60):
+        r_ = await eng.tick(run_id)
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] == "awaiting_review" and cur["phase"] == "writing":
+            break
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+        elif cur["status"] in {"complete", "failed"}:
+            break
+    async with SessionLocal() as db:
+        from app.models.memory import AiTurn
+        turns = (await db.scalars(select(AiTurn).where(
+            AiTurn.project_id == pid, AiTurn.task == "scene_expand"))).all()
+        assert turns and "~1500" in turns[-1].prompt_excerpt
+        run = await db.get(AuthoringRun, run_id)
+        assert run.target_chapters == 12 and run.words_per_scene == 1500
+    # status trả progress
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert st["progress"]["scenes"] >= 1

@@ -333,9 +333,12 @@ async def h_outline(db, run, step):
     premise = _premise_ctx(run)
     chars = [c.name for c in (await db.scalars(select(Character).where(
         Character.project_id == run.project_id))).all()]
+    goal = (f"\n\n=== MỤC TIÊU ===\nTổng số chương mong muốn: ~{run.target_chapters}. "
+            f"Dàn quyển/hồi/chương sát mục tiêu này (được lệch nếu cốt truyện cần)."
+            if run.target_chapters else "")
     prompt = (f"=== PREMISE ===\n{json.dumps(premise, ensure_ascii=False)}\n\n"
               f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20])
-              + "\n\nSinh khung truyện theo schema.")
+              + goal + "\n\nSinh khung truyện theo schema.")
     text, _ = await ai_call(db, run, "book_outline", prompt)
     data = parse_json(text)
     vols = data.get("volumes") or []
@@ -399,8 +402,9 @@ async def h_scene_write(db, run, step):
     if not sc:
         raise ValueError("scene không tồn tại")
     brief = sc.skeleton or sc.title or "Viết cảnh này."
+    w = run.words_per_scene or 900
     prompt = (f"Viết cảnh “{sc.title or 'Cảnh'}”.\nXương cảnh/beat: {brief}\n"
-              f"Độ dài mục tiêu ~600-1200 chữ. Xuất DUY NHẤT văn xuôi.")
+              f"Độ dài mục tiêu ~{w} chữ. Xuất DUY NHẤT văn xuôi.")
     text, _ = await ai_call(db, run, "scene_expand", prompt, scene_id=sc.id)
     text = (text or "").strip()
     if len(text) < 40:

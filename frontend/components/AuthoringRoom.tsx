@@ -9,6 +9,8 @@ type Step = { key: string; status: string; error?: string; at: string };
 type Run = {
   id: string; phase: string; status: string; prompt: string;
   stage_payload?: any; last_error?: string; live: boolean;
+  target_chapters?: number | null; words_per_scene?: number | null;
+  progress?: { scenes: number; with_prose: number };
 };
 type Status = { run: Run | null; steps: Step[]; phases: string[] };
 
@@ -31,6 +33,8 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
   const [data, setData] = useState<Status | null>(null);
   const [prompt, setPrompt] = useState("");
   const [hint, setHint] = useState("");
+  const [targetCh, setTargetCh] = useState("");
+  const [wordsScene, setWordsScene] = useState("900");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -93,11 +97,36 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               style={{ width: "100%" }}
             />
           </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Số chương mục tiêu")}</label>
+              <input
+                type="number" min={1} max={500}
+                value={targetCh}
+                onChange={(e) => setTargetCh(e.target.value)}
+                placeholder={t(lang, "Để trống = AI tự quyết")}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Chữ mỗi cảnh")}</label>
+              <input
+                type="number" min={200} max={5000} step={100}
+                value={wordsScene}
+                onChange={(e) => setWordsScene(e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
           {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
           <button
             className="btn primary"
             disabled={busy}
-            onClick={() => act("start", { prompt: prompt.trim() || undefined })}
+            onClick={() => act("start", {
+              prompt: prompt.trim() || undefined,
+              target_chapters: targetCh.trim() ? parseInt(targetCh, 10) : undefined,
+              words_per_scene: wordsScene.trim() ? parseInt(wordsScene, 10) : undefined,
+            })}
           >
             {busy ? t(lang, "Đang khởi động…") : t(lang, "Bắt đầu tạo truyện")}
           </button>
@@ -138,6 +167,12 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 {t(lang, (PHASE_META[run.phase]?.label ?? run.phase))}
                 <span className={`pill ${run.status}`} style={{ marginLeft: 10 }}>{run.status}</span>
               </h2>
+              {(run.progress?.scenes ?? 0) > 0 && (
+                <small style={{ color: "var(--muted)" }}>
+                  {run.progress!.with_prose}/{run.progress!.scenes} {t(lang, "cảnh có văn")}
+                  {run.target_chapters ? ` · ${t(lang, "mục tiêu ~")}${run.target_chapters} ${t(lang, "chương")}` : ""}
+                </small>
+              )}
             </div>
 
             {run.stage_payload?.premise && (

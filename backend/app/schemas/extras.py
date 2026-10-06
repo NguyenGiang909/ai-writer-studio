@@ -105,5 +105,7 @@ class LineDiffRequest(BaseModel):
 class AuthoringStartRequest(BaseModel):
     # prompt optional — dự án đã có khung thì AI tự tiếp nhận, prompt chỉ là định hướng
     prompt:str|None=Field(default=None,max_length=4000); name:str|None=None
+    target_chapters:int|None=Field(default=None,ge=1,le=500)
+    words_per_scene:int|None=Field(default=None,ge=200,le=5000)
 class AuthoringRegenerateRequest(BaseModel):
     hint:str|None=Field(default=None,max_length=2000)

@@ -824,6 +824,11 @@ const EN: Record<string, string> = {
   "Ví dụ: một chủ quán mì ở phố cổ phát hiện khách quen đều là linh hồn chưa siêu thoát…": "e.g. a noodle-shop owner in the old quarter discovers his regulars are unpassed spirits…",
   "Ý tưởng của bạn": "Your idea",
   "Ý tưởng / định hướng": "Idea / direction",
+  "Số chương mục tiêu": "Target chapters",
+  "Chữ mỗi cảnh": "Words per scene",
+  "Để trống = AI tự quyết": "Empty = AI decides",
+  "cảnh có văn": "scenes written",
+  "mục tiêu ~": "target ~",
   "Truyện đã có khung thì để trống — AI sẽ đọc nội dung hiện có và viết phần còn thiếu. Truyện mới cần ít nhất 1 câu ý tưởng.":
     "Leave empty if the story already has a structure — AI will read existing content and write what's missing. A new story needs at least one sentence of idea.",
   "Bắt đầu tạo truyện": "Start authoring",

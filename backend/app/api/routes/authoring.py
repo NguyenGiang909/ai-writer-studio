@@ -41,7 +41,9 @@ async def start(pid: str, p: AuthoringStartRequest, db: AsyncSession = Depends(g
             raise HTTPException(400, "truyện mới cần ít nhất 1 câu ý tưởng")
         prompt = "Tiếp tục phát triển truyện theo khung hiện có — điền phần còn thiếu, không ghi đè nội dung tác giả."
     run = AuthoringRun(project_id=pid, prompt=prompt,
-                       phase="premise", status="running")
+                       phase="premise", status="running",
+                       target_chapters=p.target_chapters,
+                       words_per_scene=p.words_per_scene)
     db.add(run)
     await db.commit()
     await db.refresh(run)
@@ -60,6 +62,12 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
     steps = list((await db.scalars(select(AuthoringStep).where(
         AuthoringStep.run_id == run.id).order_by(
         AuthoringStep.created_at.desc()))).all()[:30])
+    # progress: số scene có prose / tổng scene — cho UI hiển thị "x/y"
+    from app.models import Scene
+    n_scenes = await db.scalar(select(func.count(Scene.id)).where(
+        Scene.project_id == pid))
+    n_prose = await db.scalar(select(func.count(Scene.id)).where(
+        Scene.project_id == pid, Scene.prose.is_not(None), Scene.prose != ""))
     payload = None
     if run.stage_payload_json:
         try:
@@ -70,6 +78,9 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
         "run": {
             "id": run.id, "phase": run.phase, "status": run.status,
             "prompt": run.prompt, "stage_payload": payload,
+            "target_chapters": run.target_chapters,
+            "words_per_scene": run.words_per_scene,
+            "progress": {"scenes": n_scenes or 0, "with_prose": n_prose or 0},
             "last_error": run.last_error, "created_at": str(run.created_at),
             "updated_at": str(run.updated_at), "live": eng.is_live(run.id),
         },
