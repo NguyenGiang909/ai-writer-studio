@@ -30,3 +30,8 @@ node_modules/
 # OS
 Thumbs.db
 .DS_Store
+
+# packaging artifacts (PyInstaller + assembled bundle)
+backend/build/
+backend/dist/
+package/

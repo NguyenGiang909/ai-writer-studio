@@ -1,11 +1,11 @@
 
-import json,re
+import json,re,uuid
 from datetime import datetime
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,UploadFile,File
 from fastapi.responses import Response
-from sqlalchemy import select,inspect
+from sqlalchemy import select,inspect,text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
+from app.db.session import get_db, engine
 from app.models import *
 from app.models.truth import CanonFact,AuthorDecision,StoryEvent,StoryState,KnowledgeState,Secret
 from app.models.narrative import Thread,ThreadBeat,ThreadDependency
@@ -99,3 +99,54 @@ async def _markdown(db,proj):
             prose=(s.prose or "").strip()
             if prose: lines += [prose,""]
     return "\n".join(lines)
+
+@router.post("/projects/import")
+async def import_project(file: UploadFile = File(...), db: AsyncSession=Depends(get_db)):
+    """Nhập file export .json → project MỚI. Remap toàn bộ id để import lặp
+    được và FK tự trỏ sang id mới (mọi cột ref đều đuôi _id hoặc giá trị uuid)."""
+    try:
+        data=json.loads(await file.read())
+    except Exception:
+        raise HTTPException(400,"file không phải JSON hợp lệ")
+    if data.get("format")!="ai-writer-studio-export":
+        raise HTTPException(400,"không phải file export của app (thiếu format)")
+    psrc=data.get("project") or {}
+    if not psrc.get("name"): raise HTTPException(400,"export thiếu project.name")
+
+    proj=Project(name=psrc["name"],description=psrc.get("description"))
+    db.add(proj); await db.flush()
+    new_pid=proj.id
+
+    # Pass 1: mọi id cũ → uuid mới (uuid duy nhất toàn cục nên map chung an toàn)
+    id_map={}
+    for name,_ in TABLES:
+        for row in data.get(name) or []:
+            if isinstance(row.get("id"),str): id_map[row["id"]]=str(uuid.uuid4())
+
+    # Pass 2: insert; defer FK check tới commit để khỏi sắp thứ tự/self-FK
+    if engine.url.get_backend_name().startswith("sqlite"):
+        await db.execute(text("PRAGMA defer_foreign_keys=ON"))
+    counts={}
+    for name,model in TABLES:
+        rows=data.get(name) or []
+        cols={c.name:c for c in model.__table__.columns}
+        n=0
+        for row in rows:
+            if not isinstance(row,dict): continue
+            kw={}
+            for k,v in row.items():
+                col=cols.get(k)
+                if col is None: continue
+                if k=="id" and v in id_map: v=id_map[v]
+                elif k=="project_id": v=new_pid
+                elif isinstance(v,str) and v in id_map: v=id_map[v]
+                if isinstance(v,str) and col.type.__class__.__name__=="DateTime":
+                    try: v=datetime.fromisoformat(v.replace("Z","+00:00")).replace(tzinfo=None)
+                    except ValueError: pass
+                kw[k]=v
+            if "project_id" in cols: kw["project_id"]=new_pid
+            if kw.get("id") is None and "id" in cols: kw["id"]=str(uuid.uuid4())
+            db.add(model(**kw)); n+=1
+        counts[name]=n
+    await db.commit()
+    return {"project":{"id":new_pid,"name":proj.name},"counts":counts}
