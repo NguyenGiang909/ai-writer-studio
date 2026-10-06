@@ -513,10 +513,13 @@ async def h_arc_chapters(db, run, step):
     existing = [c.title for c in (await db.scalars(select(Chapter).where(
         Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all()]
     want = arc_meta.get("chapter_count")
+    # truyện dài: chỉ cần ~30 chương gần nhất để nối mạch — tránh prompt phình
+    recent = existing[-30:]
     prompt = (f"=== PREMISE ===\n{json.dumps({k: v for k, v in ctx.items() if k != 'skeleton'}, ensure_ascii=False)}\n\n"
               f"=== KHUNG TRUYỆN ===\n{json.dumps(skeleton, ensure_ascii=False)[:3000]}\n\n"
               f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20]) + "\n\n"
-              f"=== DANH SÁCH CHƯƠNG ĐÃ DÀN ===\n" + ("\n".join(existing) or "(chưa có)") + "\n\n"
+              f"=== DANH SÁCH CHƯƠNG ĐÃ DÀN (gần nhất) ===\n"
+              + ("\n".join(recent) or "(chưa có)") + "\n\n"
               f"=== HỒI CẦN DÀN ===\n{arc.title}"
               + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get("goal") else "")
               + (f" — ~{want} chương" if want else "")
