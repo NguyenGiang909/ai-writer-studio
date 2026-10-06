@@ -25,6 +25,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000",
                    "http://localhost:3001", "http://127.0.0.1:3001"],
+    # app local-first: cho phép mọi origin nội bộ (localhost/127.x/LAN/Tauri webview)
+    # — trình duyệt mở qua preview proxy hay IP LAN cũng gọi API được
+    allow_origin_regex=(r"^(https?://(localhost|127\.0\.0\.1|\[::1\]"
+                        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+                        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+                        r"|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?"
+                        r"|tauri://localhost|app://-)$"),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
