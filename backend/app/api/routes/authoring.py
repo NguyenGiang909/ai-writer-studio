@@ -4,7 +4,7 @@ Mọi thao tác đọc run từ DB rồi spawn/tick — engine stateless.
 """
 import json
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -135,7 +135,11 @@ async def resume(pid: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "chưa có run")
     if run.status not in {"paused", "failed"}:
         raise HTTPException(409, f"run đang {run.status}")
+    # reset bộ đếm lỗi — step fail cũ không chặn lần thử lại sau khi đã sửa
+    await db.execute(delete(AuthoringStep).where(
+        AuthoringStep.run_id == run.id, AuthoringStep.status == "failed"))
     run.status = "running"
+    run.last_error = None
     await db.commit()
     eng.spawn(run.id)
     return {"status": "running"}

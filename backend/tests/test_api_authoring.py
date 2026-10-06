@@ -308,3 +308,107 @@ async def test_second_run_does_not_reextract_facts(client):
         # chapter_facts chỉ chạy 1 lần duy nhất dù 2 run
         assert len([k for k in keys if k.startswith("chapter_facts.")]) == 1
         assert n_events <= 15  # fake provider trả ~2/chapter; không nhân đôi
+
+
+@pytest.mark.asyncio
+async def test_failed_step_fails_run_then_resume(client, monkeypatch):
+    """Step lỗi 2 lần → run 'failed'; sửa handler → resume chạy tiếp được."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"prompt": "test fail"})).raise_for_status()
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+
+    real = eng.HANDLERS["premise"]
+    monkeypatch.setitem(eng.HANDLERS, "premise",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    for _ in range(3):
+        await eng.tick(st["id"])  # fail, fail, lần 3 thấy failed>=2 → run failed
+    cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert cur["status"] == "failed"
+    assert "premise.generate" in (cur["last_error"] or "")
+
+    # sửa xong → resume → tick → premise.generate thành công
+    monkeypatch.setitem(eng.HANDLERS, "premise", real)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/resume")).raise_for_status()
+    await eng.tick(st["id"])
+    r = await eng.tick(st["id"])
+    assert r == "checkpoint"
+    cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert cur["status"] == "awaiting_review"
+
+
+@pytest.mark.asyncio
+async def test_provenance_entity_type_filter(client):
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    run_id, _ = await _drive(client, pid)
+    all_items = (await client.get(
+        f"/api/v1/projects/{pid}/authoring/provenance")).json()["items"]
+    chars = (await client.get(
+        f"/api/v1/projects/{pid}/authoring/provenance?entity_type=character")).json()["items"]
+    assert chars and all(i["entity_type"] == "character" for i in chars)
+    assert len(chars) < len(all_items)
+    assert all(i["origin"] == "ai" for i in all_items)
+
+
+@pytest.mark.asyncio
+async def test_regenerate_outline_replaces_tree(client):
+    """Regenerate outline: volume/arc/chapter/scene AI cũ bị xoá sạch, dựng bộ mới."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"prompt": "chu du thời gian"})).raise_for_status()
+    run_id = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]["id"]
+
+    # chạy tới checkpoint outline (premise→cast→world→outline xong)
+    for _ in range(80):
+        await eng.tick(run_id)
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] == "awaiting_review" and cur["phase"] == "outline":
+            break
+        if cur["status"] == "awaiting_review":
+            (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    else:
+        raise AssertionError("không tới checkpoint outline")
+
+    async with SessionLocal() as db:
+        old_ch_ids = {c.id for c in (await db.scalars(select(Chapter).where(
+            Chapter.project_id == pid))).all()}
+        assert old_ch_ids
+
+    (await client.post(f"/api/v1/projects/{pid}/authoring/regenerate", json={})).raise_for_status()
+    for _ in range(80):
+        r = await eng.tick(run_id)
+        if r != "step":
+            break
+    cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    assert cur["status"] == "awaiting_review" and cur["phase"] == "outline"
+
+    async with SessionLocal() as db:
+        new_chs = (await db.scalars(select(Chapter).where(
+            Chapter.project_id == pid))).all()
+        new_ids = {c.id for c in new_chs}
+        assert new_ids and not (new_ids & old_ch_ids)  # toàn id mới
+        # provenance chỉ trỏ entity còn sống
+        prov_ids = {p.entity_id for p in (await db.scalars(select(EntityProvenance).where(
+            EntityProvenance.project_id == pid,
+            EntityProvenance.entity_type == "chapter"))).all()}
+        assert prov_ids == new_ids
+        scs = (await db.scalars(select(Scene).where(Scene.project_id == pid))).all()
+        assert all(s.chapter_id in new_ids for s in scs)  # không scene mồ côi
+
+
+@pytest.mark.asyncio
+async def test_chapter_facts_writes_canon_and_beats(client):
+    """Facts extraction ghi đủ story_event + canon_fact + thread_beat có provenance."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    await _drive(client, pid)
+    async with SessionLocal() as db:
+        evs = (await db.scalars(select(StoryEvent).where(StoryEvent.project_id == pid))).all()
+        cf = (await db.scalars(select(CanonFact).where(CanonFact.project_id == pid))).all()
+        assert evs and cf  # fake facts trả cả hai
+        from app.models.narrative import ThreadBeat
+        beats = (await db.scalars(select(ThreadBeat).where(ThreadBeat.project_id == pid))).all()
+        assert beats
+        prov_types = {p.entity_type for p in (await db.scalars(select(EntityProvenance).where(
+            EntityProvenance.project_id == pid))).all()}
+        assert {"story_event", "canon_fact", "thread_beat"} <= prov_types
