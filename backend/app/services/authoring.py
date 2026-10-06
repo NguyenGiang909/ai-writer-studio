@@ -29,7 +29,9 @@ from app.models.truth import StoryEvent, StoryState, CanonFact
 from app.models.narrative import Thread, ThreadBeat
 from app.models.memory import AiTurn
 from app.ai.router import ModelRouter, ModelRequest
-from app.ai.compose import build_story_prompt
+from app.ai.compose import (
+    build_story_prompt, WORLD_PLACES_SYSTEM, WORLD_RULES_SYSTEM, WORLD_LORE_SYSTEM,
+)
 
 PHASES = ["premise", "cast", "world", "outline", "writing"]
 
@@ -60,7 +62,7 @@ class Facts:
     scenes_by_chapter: dict = field(default_factory=dict)
     has_premise: bool = False
     has_cast: bool = False
-    has_world: bool = False
+    world_parts: set[str] = field(default_factory=set)  # loại world entity đã có
 
 
 async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
@@ -81,10 +83,13 @@ async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
     proj = await db.get(Project, run.project_id)
     n_chars = await db.scalar(select(func.count(Character.id)).where(
         Character.project_id == run.project_id))
-    n_world = 0
-    for m in (Location, Faction, Item, Ability, WorldEntity):
-        n_world += await db.scalar(select(func.count(m.id)).where(
-            m.project_id == run.project_id)) or 0
+    world_parts: set[str] = set()
+    for wname, m in (("location", Location), ("faction", Faction), ("item", Item),
+                     ("ability", Ability), ("world_entity", WorldEntity),
+                     ("style_profile", StyleProfile)):
+        if await db.scalar(select(func.count(m.id)).where(
+                m.project_id == run.project_id)):
+            world_parts.add(wname)
     failed: dict[str, int] = {}
     for s in steps:
         if s.status == "failed" and s.run_id == run.id:
@@ -94,7 +99,16 @@ async def load_facts(db: AsyncSession, run: AuthoringRun) -> Facts:
                            if s.status == "done" and s.run_id == run.id},
                  failed=failed, chapters=chapters, scenes_by_chapter=by_ch,
                  has_premise=bool((proj.description or "").strip()) if proj else False,
-                 has_cast=bool(n_chars), has_world=n_world > 0)
+                 has_cast=bool(n_chars), world_parts=world_parts)
+
+
+# world tách 3 sub-step tuần tự — call sau nhìn kết quả call trước (liền mạch)
+# (step_key, loại entity step phủ, mô tả)
+_WORLD_PLAN = (
+    ("world.places", {"location", "faction"}, "Sinh địa danh + thế lực"),
+    ("world.rules", {"item", "ability"}, "Sinh vật phẩm + luật sức mạnh"),
+    ("world.lore", {"world_entity", "style_profile"}, "Sinh lore + phong cách truyện"),
+)
 
 
 def next_step(run: AuthoringRun, f: Facts) -> Step | None:
@@ -112,8 +126,11 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
             return Step("cast.generate", "cast_gen", "Sinh nhân vật + quan hệ")
         return None
     if ph == "world":
-        if not f.has_world and "world.generate" not in f.done:
-            return Step("world.generate", "world_gen", "Sinh địa điểm + thế lực + vật/lore")
+        # tách 3 call nhỏ, mỗi call chỉ sinh mảng còn thiếu (covers - world_parts)
+        # → chống gateway timeout + continue-mode bù đúng loại thiếu, không gọi lại
+        for key, covers, detail in _WORLD_PLAN:
+            if key not in f.done and covers - f.world_parts:
+                return Step(key, "world_gen", detail)
         return None
     if ph == "outline":
         if not f.chapters and "outline.generate" not in f.done:
@@ -273,60 +290,156 @@ async def h_cast(db, run, step):
     return {"characters": len(created)}
 
 
-async def h_world(db, run, step):
-    premise = _premise_ctx(run)
-    chars = [c.name for c in (await db.scalars(select(Character).where(
+async def _cast_names(db, run) -> list[str]:
+    return [c.name for c in (await db.scalars(select(Character).where(
         Character.project_id == run.project_id))).all()]
-    prompt = (f"=== PREMISE ===\n{json.dumps(premise, ensure_ascii=False)}\n\n"
-              f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20])
-              + "\n\nSinh thế giới theo schema.")
-    text, _ = await ai_call(db, run, "world_gen", prompt)
+
+
+async def _existing_names(db, model, run) -> set[str]:
+    return set((await db.scalars(select(model.name).where(
+        model.project_id == run.project_id))).all())
+
+
+async def _world_ctx(db, run) -> str:
+    """Thế giới tích lũy (có sẵn + vừa sinh) — context liền mạch cho call sau:
+    call sau tham chiếu đúng tên, không trùng/mâu thuẫn thực thể đã có."""
+    lines = []
+    for label, model, render in (
+        ("Địa danh", Location, lambda r: _clip(r.description, 100)),
+        ("Thế lực", Faction, lambda r: _clip(r.description, 100)),
+        ("Vật phẩm", Item, lambda r: _clip(r.description, 100)),
+        ("Sức mạnh", Ability, lambda r: f"{r.ability_type or '?'}: {_clip(r.can_do, 80)}"),
+        ("Lore", WorldEntity, lambda r: f"{r.entity_type or 'lore'}: {_clip(r.description, 80)}"),
+    ):
+        rows = (await db.scalars(select(model).where(
+            model.project_id == run.project_id))).all()
+        if rows:
+            lines.append(f"[{label}] " + "; ".join(
+                f"{r.name} ({render(r)})" if render(r) else r.name for r in rows[:15]))
+    return "\n".join(lines) or "(chưa có)"
+
+
+def _world_prompt(run, premise, world_ctx: str, chars: list[str], want: str) -> str:
+    return (f"=== PREMISE ===\n{json.dumps(premise, ensure_ascii=False)}\n\n"
+            f"=== NHÂN VẬT ===\n" + ", ".join(chars[:20]) + "\n\n"
+            f"=== THẾ GIỚI ĐÃ CÓ (phải khớp, tham chiếu đúng tên, không tạo trùng) ===\n"
+            f"{world_ctx}\n\n"
+            f"NHIỆM VỤ: chỉ trả các mảng {want}.")
+
+
+async def _write_world_rows(db, run, model, etype, rows, build, cap):
+    existing = await _existing_names(db, model, run)
+    n = 0
+    for r in (rows or [])[:cap]:
+        name = (r.get("name") or "").strip()
+        if not name or name in existing:
+            continue
+        obj = build(r, name)
+        db.add(obj); await db.flush(); provenance(db, run, etype, obj.id)
+        existing.add(name); n += 1
+    return n
+
+
+async def h_world_places(db, run, step):
+    parts = await _facts_parts(db, run)
+    need_loc = "location" not in parts
+    need_fct = "faction" not in parts
+    if not (need_loc or need_fct):
+        return {"skipped": "địa danh/thế lực đã có"}
+    want = ", ".join(k for k, n in
+                     (("locations", need_loc), ("factions", need_fct)) if n)
+    prompt = _world_prompt(run, _premise_ctx(run), await _world_ctx(db, run),
+                           await _cast_names(db, run), want)
+    text, _ = await ai_call(db, run, "world_gen", prompt,
+                            system=WORLD_PLACES_SYSTEM)
     data = parse_json(text)
     n = 0
-    for loc in (data.get("locations") or [])[:20]:
-        name = (loc.get("name") or "").strip()
-        if not name:
-            continue
-        lo = Location(project_id=run.project_id, name=name, description=loc.get("description"))
-        db.add(lo); await db.flush(); provenance(db, run, "location", lo.id); n += 1
-    for fct in (data.get("factions") or [])[:15]:
-        name = (fct.get("name") or "").strip()
-        if not name:
-            continue
-        fa = Faction(project_id=run.project_id, name=name, description=fct.get("description"))
-        db.add(fa); await db.flush(); provenance(db, run, "faction", fa.id); n += 1
-    for it in (data.get("items") or [])[:15]:
-        name = (it.get("name") or "").strip()
-        if not name:
-            continue
-        io_ = Item(project_id=run.project_id, name=name, description=it.get("description"))
-        db.add(io_); await db.flush(); provenance(db, run, "item", io_.id); n += 1
-    for ab in (data.get("abilities") or [])[:15]:
-        name = (ab.get("name") or "").strip()
-        if not name:
-            continue
-        abo = Ability(project_id=run.project_id, name=name,
-                      ability_type=_clip(ab.get("type"), 64), can_do=ab.get("can_do"),
-                      cannot_do=ab.get("cannot_do"), limits=ab.get("limits"),
-                      cost=ab.get("cost"), conditions=ab.get("conditions"))
-        db.add(abo); await db.flush(); provenance(db, run, "ability", abo.id); n += 1
-    for we in (data.get("lore") or [])[:15]:
-        name = (we.get("name") or "").strip()
-        if not name:
-            continue
-        w = WorldEntity(project_id=run.project_id, name=name,
-                        entity_type=_clip(we.get("type"), 64) or "lore",
-                        description=we.get("description"))
-        db.add(w); await db.flush(); provenance(db, run, "world_entity", w.id); n += 1
-    if data.get("style"):
+    if need_loc:
+        n += await _write_world_rows(db, run, Location, "location",
+            data.get("locations"),
+            lambda r, name: Location(project_id=run.project_id, name=name,
+                                     description=r.get("description")), 20)
+    if need_fct:
+        n += await _write_world_rows(db, run, Faction, "faction",
+            data.get("factions"),
+            lambda r, name: Faction(project_id=run.project_id, name=name,
+                                    description=r.get("description")), 15)
+    run.stage_payload_json = json.dumps({"created": n}, ensure_ascii=False)
+    return {"created": n}
+
+
+async def h_world_rules(db, run, step):
+    parts = await _facts_parts(db, run)
+    need_it = "item" not in parts
+    need_ab = "ability" not in parts
+    if not (need_it or need_ab):
+        return {"skipped": "vật phẩm/sức mạnh đã có"}
+    want = ", ".join(k for k, n in
+                     (("items", need_it), ("abilities", need_ab)) if n)
+    prompt = _world_prompt(run, _premise_ctx(run), await _world_ctx(db, run),
+                           await _cast_names(db, run), want)
+    text, _ = await ai_call(db, run, "world_gen", prompt,
+                            system=WORLD_RULES_SYSTEM)
+    data = parse_json(text)
+    n = 0
+    if need_it:
+        n += await _write_world_rows(db, run, Item, "item",
+            data.get("items"),
+            lambda r, name: Item(project_id=run.project_id, name=name,
+                                 description=r.get("description")), 15)
+    if need_ab:
+        n += await _write_world_rows(db, run, Ability, "ability",
+            data.get("abilities"),
+            lambda r, name: Ability(project_id=run.project_id, name=name,
+                                    ability_type=_clip(r.get("type"), 64),
+                                    can_do=r.get("can_do"), cannot_do=r.get("cannot_do"),
+                                    limits=r.get("limits"), cost=r.get("cost"),
+                                    conditions=r.get("conditions")), 15)
+    run.stage_payload_json = json.dumps({"created": n}, ensure_ascii=False)
+    return {"created": n}
+
+
+async def h_world_lore(db, run, step):
+    parts = await _facts_parts(db, run)
+    need_we = "world_entity" not in parts
+    need_sp = "style_profile" not in parts
+    if not (need_we or need_sp):
+        return {"skipped": "lore/style đã có"}
+    want = ", ".join(k for k, n in
+                     (("lore", need_we), ("style", need_sp)) if n)
+    prompt = _world_prompt(run, _premise_ctx(run), await _world_ctx(db, run),
+                           await _cast_names(db, run), want)
+    text, _ = await ai_call(db, run, "world_gen", prompt,
+                            system=WORLD_LORE_SYSTEM)
+    data = parse_json(text)
+    n = 0
+    if need_we:
+        n += await _write_world_rows(db, run, WorldEntity, "world_entity",
+            data.get("lore"),
+            lambda r, name: WorldEntity(project_id=run.project_id, name=name,
+                                        entity_type=_clip(r.get("type"), 64) or "lore",
+                                        description=r.get("description")), 15)
+    if need_sp and data.get("style"):
         sp = StyleProfile(project_id=run.project_id, name="AI default",
                           scope_type="global", instructions=_clip(json.dumps(
                               data["style"], ensure_ascii=False), 2000))
         db.add(sp); await db.flush(); provenance(db, run, "style_profile", sp.id)
-    run.stage_payload_json = json.dumps(
-        {"locations": len(data.get("locations") or []),
-         "factions": len(data.get("factions") or []), "created": n}, ensure_ascii=False)
+        n += 1
+    run.stage_payload_json = json.dumps({"created": n}, ensure_ascii=False)
     return {"created": n}
+
+
+async def _facts_parts(db, run) -> set[str]:
+    """Loại world entity đã có — check lại ở handler (facts load đã cũ khi
+    step trước trong cùng phase vừa ghi entity mới)."""
+    parts = set()
+    for wname, m in (("location", Location), ("faction", Faction), ("item", Item),
+                     ("ability", Ability), ("world_entity", WorldEntity),
+                     ("style_profile", StyleProfile)):
+        if await db.scalar(select(func.count(m.id)).where(
+                m.project_id == run.project_id)):
+            parts.add(wname)
+    return parts
 
 
 async def h_outline(db, run, step):
@@ -479,7 +592,9 @@ async def h_chapter_facts(db, run, step):
 
 
 HANDLERS = {
-    "premise": h_premise, "cast_gen": h_cast, "world_gen": h_world,
+    "premise": h_premise, "cast_gen": h_cast,
+    "world.places": h_world_places, "world.rules": h_world_rules,
+    "world.lore": h_world_lore,
     "book_outline": h_outline, "chapter_outline": h_chapter_scenes,
     "scene_expand": h_scene_write, "chapter_facts": h_chapter_facts,
 }
@@ -520,7 +635,7 @@ async def tick(run_id: str) -> str:
                 return "step"  # loop tiếp trong phase mới
             return "complete" if run.status == "complete" else "checkpoint"
         try:
-            out = await HANDLERS[step.task](db, run, step)
+            out = await (HANDLERS.get(step.key) or HANDLERS[step.task])(db, run, step)
             await mark_done(db, run, step, out)
             run.last_error = None
         except Exception as e:  # noqa: BLE001 — step fail không giết run
@@ -560,7 +675,7 @@ _REGEN_TYPES = {
 _REGEN_STEPS = {
     "premise": ["premise.generate"],
     "cast": ["cast.generate"],
-    "world": ["world.generate"],
+    "world": ["world."],
     "outline": ["outline.generate", "chapter_scenes."],
 }
 _ENTITY_MODEL = {

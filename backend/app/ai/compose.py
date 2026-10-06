@@ -105,7 +105,8 @@ CAST_GEN_SYSTEM = (
     '"importance":0-3 (0=quan trọng nhất),"aliases":[str]}],'
     '"relationships":[{"a":str,"b":str,"type":str,"notes":str}]}\n'
     "6-12 nhân vật. a/b trong relationships phải khớp name đã sinh. Mỗi nhân vật có "
-    "vai trò rõ trong premise — không nhân vật trang trí."
+    "vai trò rõ trong premise — không nhân vật trang trí. "
+    "summary ≤60 từ, voice_notes ≤25 từ — súc tích, không viết dài."
 )
 
 WORLD_GEN_SYSTEM = (
@@ -120,6 +121,42 @@ WORLD_GEN_SYSTEM = (
     '"style":{"tone":str,"pov":str,"tense":str,"notes":str}}\n'
     "Chỉ sinh mảng phù hợp thể loại (kiếm hiệp → abilities; đời thường → bỏ trống). "
     "Locations nên có hierarchy ngầm (thành → quận → địa điểm)."
+)
+
+# world_gen tách 3 call nhỏ (chống gateway timeout + rẻ hơn) — mỗi call chỉ trả
+# phần được giao trong NHIỆM VỤ, nhìn thế giới đã tích lũy để giữ liền mạch
+WORLD_PLACES_SYSTEM = (
+    "Bạn là kiến trúc sư thế giới tiểu thuyết — phần ĐỊA LÝ & THẾ LỰC. Trả về "
+    "DUY NHẤT JSON object:\n"
+    '{"locations":[{"name":str,"description":str}],'
+    '"factions":[{"name":str,"description":str}]}\n'
+    "4-10 locations, 2-6 factions — chỉ trả mảng được yêu cầu trong NHIỆM VỤ, "
+    "mảng không được yêu cầu thì bỏ hẳn khỏi JSON. Mỗi faction phải neo vào địa "
+    "danh cụ thể (nhắc đúng tên địa danh trong description). Locations có "
+    "hierarchy ngầm (thành → quận → địa điểm). description 1-3 câu, không dài."
+)
+
+WORLD_RULES_SYSTEM = (
+    "Bạn là kiến trúc sư thế giới tiểu thuyết — phần VẬT PHẨM & LUẬT SỨC MẠNH. "
+    "Trả về DUY NHẤT JSON object:\n"
+    '{"items":[{"name":str,"description":str}],'
+    '"abilities":[{"name":str,"type":str,"can_do":str,"cannot_do":str,'
+    '"limits":str,"cost":str,"conditions":str}]}\n'
+    "Chỉ trả mảng được yêu cầu trong NHIỆM VỤ; đời thường → bỏ abilities. "
+    "Items/abilities phải gắn với địa danh/faction/nhân vật ĐÃ CÓ (nhắc đúng "
+    "tên) — không bịa thực thể nền mới. Mỗi ability có cost + limits rõ ràng, "
+    "không sức mạnh vô hạn."
+)
+
+WORLD_LORE_SYSTEM = (
+    "Bạn là kiến trúc sư thế giới tiểu thuyết — phần LỊCH SỬ & PHONG CÁCH. "
+    "Trả về DUY NHẤT JSON object:\n"
+    '{"lore":[{"name":str,"type":str,"description":str}],'
+    '"style":{"tone":str,"pov":str,"tense":str,"notes":str}]}\n'
+    "Lore = sự kiện lịch sử/truyền thuyết/quy tắc GIẢI THÍCH tại sao địa danh, "
+    "faction, vật phẩm đã liệt kê tồn tại như vậy — tham chiếu đúng tên đã có, "
+    "không sinh thực thể nền mới. Style = giọng kể khớp premise + thế giới "
+    "(tone, POV, thì). Chỉ trả mảng được yêu cầu trong NHIỆM VỤ."
 )
 
 BOOK_OUTLINE_SYSTEM = (

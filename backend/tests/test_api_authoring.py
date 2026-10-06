@@ -2,7 +2,8 @@ import pytest, pytest_asyncio
 import app.services.authoring as eng
 from app.db.session import SessionLocal
 from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
-from app.models import Character, Location, Chapter, Scene
+from app.models import (Character, Location, Chapter, Scene, Faction, Item,
+                        Ability, WorldEntity, StyleProfile)
 from app.models.truth import StoryEvent, StoryState, CanonFact
 from app.models.narrative import Thread
 from sqlalchemy import select
@@ -214,7 +215,13 @@ async def test_continue_existing_project(client):
         "name": "Vĩnh Thành", "description": "Đại gia đình buôn tơ lụa"})).json()["id"]
     async with SessionLocal() as db:
         db.add(Character(project_id=pid, name="Bảy Vĩnh", role="protagonist"))
+        # world đủ 6 loại → world phase skip hẳn, không gọi AI bù
         db.add(Location(project_id=pid, name="Làng lụa Vĩnh Thành"))
+        db.add(Faction(project_id=pid, name="Hội tơ lụa"))
+        db.add(Item(project_id=pid, name="Khung dệt cổ"))
+        db.add(Ability(project_id=pid, name="Thấu vân tơ", ability_type="nghề"))
+        db.add(WorldEntity(project_id=pid, name="Lễ hội tơ", entity_type="lore"))
+        db.add(StyleProfile(project_id=pid, name="chính", scope_type="global"))
         ch1 = Chapter(project_id=pid, title="Hồi mở", order_index=1)
         ch2 = Chapter(project_id=pid, title="Biến cố", order_index=2)
         ch3 = Chapter(project_id=pid, title="Lật bài", order_index=3)
@@ -270,6 +277,41 @@ async def test_continue_existing_project(client):
         assert s2.id not in prov  # scene row do tác giả tạo — chỉ prose là AI
         ch3_scenes = [s for s in scenes if s.chapter_id == ch3.id]
         assert ch3_scenes and all(s.id in prov for s in ch3_scenes)
+
+
+@pytest.mark.asyncio
+async def test_world_partial_fills_only_missing(client):
+    """World tách 3 sub-step: dự án có location sẵn nhưng thiếu faction/item/
+    ability/lore/style → places chỉ bù faction (không đụng location),
+    rules/lore chạy bù → checkpoint ở cuối world."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        db.add(Character(project_id=pid, name="A"))
+        db.add(Location(project_id=pid, name="Làng sẵn"))
+        await db.commit()
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+    for _ in range(40):
+        await eng.tick(st["id"])
+        cur = (await client.get(f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if cur["status"] != "running":
+            break
+    assert cur["status"] == "awaiting_review" and cur["phase"] == "world"
+    async with SessionLocal() as db:
+        locs = (await db.scalars(select(Location).where(
+            Location.project_id == pid))).all()
+        assert [l.name for l in locs] == ["Làng sẵn"]  # không trùng/không thêm
+        fcts = (await db.scalars(select(Faction).where(
+            Faction.project_id == pid))).all()
+        assert len(fcts) >= 1  # fake world → "Hội Thủ Thư" bù vào
+        items = (await db.scalars(select(Item).where(
+            Item.project_id == pid))).all()
+        assert len(items) >= 1
+        keys = {s.step_key for s in (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid))).all()}
+        assert {"world.places", "world.rules", "world.lore"} <= keys
 
 
 @pytest.mark.asyncio
