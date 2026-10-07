@@ -389,6 +389,8 @@ const EN: Record<string, string> = {
   "Chưa kết nối nhà cung cấp nào.": "No provider connected yet.",
   "Kết nối": "Connect",
   "Nhà cung cấp": "Provider",
+  "Base URL (tuỳ chọn)": "Base URL (optional)",
+  "vd http://localhost:1234/v1 — chỉ cần cho custom/LM Studio": "e.g. http://localhost:1234/v1 — only needed for custom/LM Studio",
   "Định tuyến model": "Model routing",
   "Ưu tiên: tác vụ → dự án → tài khoản → mặc định hệ thống.":
     "Priority: task → project → account → system default.",

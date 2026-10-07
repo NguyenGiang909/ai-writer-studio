@@ -119,6 +119,8 @@ PROVIDER_ENDPOINTS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "deepseek": "https://api.deepseek.com/v1",
     "kiraai": "https://kiraai.vn/api/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "anthropic": "https://api.anthropic.com",
 }
 
 
@@ -166,4 +168,61 @@ class OpenAICompatibleProvider(BaseProvider):
             text=text,
             provider=self.name, model=model,
             usage=data.get("usage", {}),
+        )
+
+
+# ---------------------------------------------------------------- anthropic
+
+class AnthropicProvider(BaseProvider):
+    """POST /v1/messages — Anthropic Messages API (không tương thích OpenAI)."""
+
+    def __init__(self, api_key: str, model: str, base_url: str, name: str = "anthropic"):
+        self.api_key, self.model, self.base_url, self.name = api_key, model, base_url, name
+
+    async def complete(self, request) -> CompletionResult:
+        model = request.model or self.model
+        payload: dict = {
+            "model": model,
+            "max_tokens": 8192,
+            "messages": [{"role": "user", "content": request.prompt}],
+        }
+        if request.system:
+            payload["system"] = request.system
+        last_exc: httpx.HTTPError | None = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=180) as client:
+                    r = await client.post(
+                        f"{self.base_url.rstrip('/')}/v1/messages",
+                        headers={
+                            "x-api-key": self.api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json=payload,
+                    )
+                r.raise_for_status()
+                break
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
+                    raise
+                last_exc = e
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_exc = e
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)
+        else:
+            raise last_exc  # type: ignore[misc]
+        data = r.json()
+        text = "".join(b.get("text", "") for b in data.get("content", [])
+                       if isinstance(b, dict) and b.get("type") == "text")
+        usage = data.get("usage") or {}
+        return CompletionResult(
+            text=text,
+            provider=self.name, model=model,
+            usage={
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+                "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+            },
         )

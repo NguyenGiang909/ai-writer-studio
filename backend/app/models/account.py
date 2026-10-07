@@ -8,6 +8,7 @@ class ProviderCredential(Base):
     __tablename__="provider_credentials"
     id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); user_id:Mapped[str]=mapped_column(String(36),index=True)
     provider:Mapped[str]=mapped_column(String(32)); encrypted_secret:Mapped[str]=mapped_column(Text); key_hint:Mapped[str]=mapped_column(String(16)); status:Mapped[str]=mapped_column(String(20),default="connected")
+    base_url:Mapped[str|None]=mapped_column(String(300))
 class ModelPreference(Base):
     __tablename__="model_preferences"
     id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); user_id:Mapped[str]=mapped_column(String(36),index=True)

@@ -15,13 +15,31 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.providers import (
-    CompletionResult, FakeProvider, OpenAICompatibleProvider, PROVIDER_ENDPOINTS,
+    AnthropicProvider, CompletionResult, FakeProvider, OpenAICompatibleProvider, PROVIDER_ENDPOINTS,
 )
 from app.core.config import settings
 from app.models.account import ModelPreference, ProviderCredential, UsageLog
 from app.services.credentials import decrypt_secret
 
 DEV_USER = "local-author"
+
+
+def build_provider(cred: ProviderCredential, model: str | None = None):
+    """Credential -> provider adapter. base_url của credential override endpoint mặc định
+    (cho 'custom'/LM Studio/proxy — bắt buộc với provider không có endpoint sẵn)."""
+    base = cred.base_url or PROVIDER_ENDPOINTS.get(cred.provider)
+    if not base:
+        raise RuntimeError(
+            f"Provider '{cred.provider}' cần base_url (nhập khi kết nối — vd http://localhost:1234/v1)"
+        )
+    if not model:
+        raise RuntimeError(f"Provider '{cred.provider}' cần tên model (đặt trong Định tuyến model)")
+    api_key = decrypt_secret(cred.encrypted_secret)
+    if cred.provider == "anthropic":
+        return AnthropicProvider(api_key=api_key, model=model or "", base_url=base)
+    return OpenAICompatibleProvider(
+        api_key=api_key, model=model or "", base_url=base, name=cred.provider
+    )
 
 
 @dataclass
@@ -59,15 +77,7 @@ class ModelRouter:
         ))).first()
         if not cred:
             raise RuntimeError(f"No connected credential for provider '{pref.provider}' — connect in Settings")
-        base = PROVIDER_ENDPOINTS.get(pref.provider)
-        if not base:
-            raise RuntimeError(f"Provider '{pref.provider}' has no adapter endpoint yet")
-        return OpenAICompatibleProvider(
-            api_key=decrypt_secret(cred.encrypted_secret),
-            model=request.model or pref.model,
-            base_url=base,
-            name=pref.provider,
-        ), pref
+        return build_provider(cred, model=request.model or pref.model), pref
 
     async def _log_usage(self, request: ModelRequest, provider: str,
                          model: str, result: CompletionResult) -> None:

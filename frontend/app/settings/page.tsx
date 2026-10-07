@@ -51,9 +51,13 @@ export default async function Settings() {
         {credentials.map((c: any) => (
           <div key={c.id} className="list-row">
             <b>{c.provider}</b> <code style={{ fontSize: 12 }}>{c.key_hint}</code>{" "}
+            {c.base_url && <code style={{ fontSize: 11, color: "var(--muted)" }}>{c.base_url}</code>}{" "}
             <small style={{ color: c.status === "connected" ? "#559d78" : "var(--red)" }}>
               {c.status === "connected" ? t(lang, "Đã kết nối") : c.status === "error" ? t(lang, "Lỗi") : c.status}
             </small>
+            <span style={{ marginLeft: 8 }}>
+              <ActionButton endpoint={`/api/v1/account/credentials/${c.id}/test`} label={t(lang, "Kiểm tra")} />
+            </span>
             {c.status === "connected" && (
               <span style={{ marginLeft: 8 }}>
                 <ActionButton endpoint={`/api/v1/account/credentials/${c.id}`} method="delete" label={t(lang, "Ngắt kết nối")} />
@@ -65,6 +69,7 @@ export default async function Settings() {
         <PostForm endpoint="/api/v1/account/credentials" submitLabel={t(lang, "Kết nối")} fields={[
           { name: "provider", label: t(lang, "Nhà cung cấp"), type: "select", options: PROVIDERS.map((p) => ({ value: p, label: p })) },
           { name: "secret", label: "API key", required: true, placeholder: "sk-…" },
+          { name: "base_url", label: t(lang, "Base URL (tuỳ chọn)"), placeholder: "vd http://localhost:1234/v1 — chỉ cần cho custom/LM Studio" },
         ]} />
       </section>
 

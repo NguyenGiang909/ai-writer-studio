@@ -23,19 +23,38 @@ async def add(db,obj):
 @router.post("/account/credentials")
 async def connect_provider(p:CredentialCreate,db:AsyncSession=Depends(get_db)):
     obj=ProviderCredential(user_id=DEV_USER,provider=p.provider,
-        encrypted_secret=encrypt_secret(p.secret),key_hint=key_hint(p.secret),status="connected")
+        encrypted_secret=encrypt_secret(p.secret),key_hint=key_hint(p.secret),status="connected",
+        base_url=(p.base_url or "").strip() or None)
     await add(db,obj)
-    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status)}
+    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url)}
 @router.get("/account/credentials")
 async def list_credentials(db:AsyncSession=Depends(get_db)):
     rows=(await db.scalars(select(ProviderCredential).where(ProviderCredential.user_id==DEV_USER))).all()
-    return [{"id":c.id,**public_credential_view(c.provider,c.key_hint,c.status)} for c in rows]
+    return [{"id":c.id,**public_credential_view(c.provider,c.key_hint,c.status,c.base_url)} for c in rows]
+_TEST_MODELS={"openai":"gpt-4o-mini","anthropic":"claude-haiku-4-5-20251001","gemini":"gemini-2.0-flash",
+    "openrouter":"openai/gpt-4o-mini","deepseek":"deepseek-chat","kiraai":"deepseek-v4.1-flash"}
+@router.post("/account/credentials/{cid}/test")
+async def test_credential(cid:str,model:str|None=None,db:AsyncSession=Depends(get_db)):
+    from app.ai.router import build_provider,ModelRequest
+    obj=await db.get(ProviderCredential,cid)
+    if not obj or obj.user_id!=DEV_USER: raise HTTPException(404,"credential not found")
+    use=model or (await db.scalar(select(ModelPreference.model).where(
+        ModelPreference.user_id==DEV_USER,ModelPreference.provider==obj.provider).limit(1))) \
+        or _TEST_MODELS.get(obj.provider)
+    if not use: raise HTTPException(400,f"cần model để thử — tạo model preference cho '{obj.provider}' trước")
+    try:
+        result=await build_provider(obj,use).complete(ModelRequest(task="chat",prompt="Reply with the word: OK"))
+    except Exception as e:
+        obj.status="error"; await db.commit()
+        raise HTTPException(400,f"Kết nối thất bại ({use}): {type(e).__name__} {e}")
+    obj.status="connected"; await db.commit()
+    return {"ok":True,"model":result.model,"reply":(result.text or "")[:80]}
 @router.delete("/account/credentials/{cid}")
 async def disconnect_provider(cid:str,db:AsyncSession=Depends(get_db)):
     obj=await db.get(ProviderCredential,cid)
     if not obj: raise HTTPException(404,"credential not found")
     obj.status="revoked"; await db.commit()
-    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status)}
+    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url)}
 
 # ---- Model preferences ----
 @router.post("/account/model-preferences")
