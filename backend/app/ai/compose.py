@@ -19,20 +19,37 @@ from app.services.memory import ancestor_chain
 
 MEMORY_TASKS = {"writing", "expand", "scene_expand", "revision", "skeleton"}
 
+HUMANIZE_RULES = (
+    "TRÁNH LỐI VĂN AI — dấu hiệu khiến đoạn văn nghe như máy viết:\n"
+    "- Đối lập thừa 'không chỉ X mà còn Y', 'không phải X, mà là Y' khi vế phủ định "
+    "không cần thiết — nói thẳng điều định nói.\n"
+    "- Câu một dòng kết đoạn chỉ để nhấn lại ý vừa nói ('Và đó là lúc mọi thứ thay đổi', "
+    "'Điều đó mới quan trọng').\n"
+    "- Cụm ba máy móc (tính từ/động từ đồng dạng) lặp cùng một nhịp khắp bài.\n"
+    "- Gạch ngang lạm dụng thay cho dấu câu tự nhiên.\n"
+    "- Mở mô típ: 'Hãy tưởng tượng', 'Điều đáng nói là', 'Cốt lõi của vấn đề'.\n"
+    "- Từ hoa mỹ rỗng quen thuộc ở văn AI: 'hành trình', 'bức tranh', 'nhịp điệu', "
+    "'không thể phủ nhận', 'dứt khoát', 'trên thực tế'.\n"
+    "- Tóm tắt lại ý vừa tả ngay sau cảnh/ví dụ ('Điều đó cho thấy…').\n"
+    "Mỗi câu phải thêm thông tin hoặc cảm xúc mới cho người đọc. Khi phân vân giữa câu "
+    "gọn và giọng kể của truyện — chọn giọng kể."
+)
+
 WRITING_SYSTEM = (
     "Bạn là trợ lý viết truyện. Nhiệm vụ duy nhất: viết/mở rộng VĂN XUÔI tiểu thuyết "
     "tiếng Việt theo đúng brief của tác giả. Không giải thích, không hỏi lại, không "
     "liệt kê gợi ý — chỉ xuất ra phần văn. Giữ đúng POV và tone của truyện; tôn trọng "
     "tuyệt đối Canon Facts; không tiết lộ điều brief cấm; không tự thêm tên/sự kiện "
     "mâu thuẫn dữ kiện đã cho. Nếu brief thiếu chi tiết, suy ra hợp lý từ ngữ cảnh "
-    "thay vì hỏi."
+    "thay vì hỏi.\n\n" + HUMANIZE_RULES
 )
 
 REVISION_SYSTEM = (
     "Bạn là trợ lý biên tập văn xuôi tiểu thuyết. Tác giả gửi một đoạn văn đã viết kèm "
     "ghi chú cần sửa. Nhiệm vụ duy nhất: trả về TOÀN BỘ đoạn văn ĐÃ SỬA, giữ nguyên "
     "phần không được yêu cầu đổi, tôn trọng Canon Facts và POV. Không giải thích, không "
-    "liệt kê thay đổi, không hỏi lại — chỉ xuất văn đã sửa."
+    "liệt kê thay đổi, không hỏi lại — chỉ xuất văn đã sửa. Không thêm dữ kiện mới "
+    "ngoài văn gốc trừ khi ghi chú yêu cầu.\n\n" + HUMANIZE_RULES
 )
 
 DISCUSSION_SYSTEM = (

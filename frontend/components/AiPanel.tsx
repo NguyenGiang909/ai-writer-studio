@@ -282,6 +282,12 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
               onChange={(e) => setReviseNotes(e.target.value)}
               placeholder={t(lang, "Ví dụ: siết nhịp nhanh hơn, bớt tả cảnh, giữ POV Minh…")} />
           </div>
+          <div className="seg" style={{ marginBottom: 8 }}>
+            <button type="button" className="chip"
+              onClick={() => setReviseNotes(t(lang, "Làm tự nhiên: gỡ lối văn AI (đối lập thừa, câu kết sở thị, cụm ba máy móc, từ hoa mỹ rỗng) — giữ nguyên nội dung, POV và giọng kể"))}>
+              {t(lang, "✎ Làm tự nhiên (gỡ văn AI)")}
+            </button>
+          </div>
           <button className="btn wide" onClick={revise} disabled={busy || !sceneId}>
             {busy ? (phase === "model" ? t(lang, "Đang chờ model… {n}s", { n: elapsed }) : t(lang, "Đang sửa…")) : t(lang, "✎ Nhờ AI sửa đoạn này")}
           </button>

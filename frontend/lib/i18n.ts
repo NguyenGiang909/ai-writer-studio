@@ -278,6 +278,8 @@ const EN: Record<string, string> = {
   "Ngữ cảnh AI đã nhận": "Context AI received",
   "phần": "parts",
   "Sửa đoạn đã viết": "Revise written prose",
+  "✎ Làm tự nhiên (gỡ văn AI)": "✎ Humanize (remove AI tells)",
+  "Làm tự nhiên: gỡ lối văn AI (đối lập thừa, câu kết sở thị, cụm ba máy móc, từ hoa mỹ rỗng) — giữ nguyên nội dung, POV và giọng kể": "Humanize: remove AI writing tells (forced contrasts, dramatic closers, mechanical triads, hollow buzzwords) — keep content, POV and narrative voice",
   "Gửi nguyên văn + ghi chú sửa": "Send full prose + revision notes",
   "Ghi chú cần sửa": "Revision notes",
   "Đang sửa…": "Revising…",
