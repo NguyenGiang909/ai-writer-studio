@@ -50,6 +50,14 @@ const FLOW_META: Record<string, { label: string; desc: string }> = {
   },
 };
 
+const STATUS_META: Record<string, { label: string; cls: string }> = {
+  running: { label: "Đang chạy", cls: "live" },
+  awaiting_review: { label: "Chờ duyệt", cls: "warn" },
+  paused: { label: "Đã tạm dừng", cls: "" },
+  complete: { label: "Hoàn tất", cls: "ok" },
+  failed: { label: "Lỗi", cls: "err" },
+};
+
 export default function AuthoringRoom({ projectId, lang }: { projectId: string; lang: Lang }) {
   const [data, setData] = useState<Status | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -220,19 +228,36 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               <h2 style={{ margin: 0, whiteSpace: "nowrap" }}>
                 {t(lang, (PHASE_META[run.phase]?.label ?? run.phase))}
               </h2>
-              <span className={`pill ${run.status}`}>{run.status}</span>
+              <span className={`pill ${STATUS_META[run.status]?.cls ?? ""}`}>
+                {t(lang, STATUS_META[run.status]?.label ?? run.status)}
+              </span>
             </div>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
-              {(run.progress?.scenes ?? 0) > 0 && (
-                <small style={{ color: "var(--muted)" }}>
-                  {run.progress!.with_prose}/{run.progress!.scenes} {t(lang, "cảnh có văn")}
-                  {run.target_chapters ? ` · ${t(lang, "mục tiêu ~")}${run.target_chapters} ${t(lang, "chương")}` : ""}
-                </small>
-              )}
+            {(run.progress?.scenes ?? 0) > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <small style={{ color: "var(--muted)" }}>
+                    <b style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>{run.progress!.with_prose}/{run.progress!.scenes}</b> {t(lang, "cảnh có văn")}
+                  </small>
+                  {run.target_chapters ? (
+                    <small style={{ color: "var(--muted)" }}>{t(lang, "mục tiêu ~")}{run.target_chapters} {t(lang, "chương")}</small>
+                  ) : null}
+                </div>
+                <div
+                  className="bar"
+                  role="progressbar"
+                  aria-valuenow={Math.round((run.progress!.with_prose / run.progress!.scenes) * 100)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <i style={{ width: `${Math.round((run.progress!.with_prose / run.progress!.scenes) * 100)}%` }} />
+                </div>
+              </div>
+            )}
+            <div style={{ marginTop: 8 }}>
               <small style={{ color: "var(--muted)" }}>
-                {run.flow === "rolling" ? t(lang, FLOW_META.rolling.label) : t(lang, FLOW_META.batch.label)}
+                {run.flow === "rolling" ? t(lang, "Theo sóng") : t(lang, "Toàn bộ")}
                 {" · "}
-                {run.call_mode === "fast" ? t(lang, "Nhanh — ít call (API mạnh)") : t(lang, "An toàn — nhiều call nhỏ")}
+                {run.call_mode === "fast" ? t(lang, "Nhanh") : t(lang, "An toàn")}
               </small>
             </div>
             {run.phase === "build" && (data?.context?.arcs?.length ?? 0) > 0 && (

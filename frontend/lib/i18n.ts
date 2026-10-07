@@ -879,4 +879,10 @@ const EN: Record<string, string> = {
   "Đã tạm dừng": "Paused",
   "Có lỗi — bấm Tiếp tục để thử lại": "Error — press Resume to retry",
   "Hoàn tất": "Complete",
+  "Đang chạy": "Running",
+  "Chờ duyệt": "Awaiting review",
+  "Theo sóng": "Rolling",
+  "Toàn bộ": "Batch",
+  "Nhanh": "Fast",
+  "An toàn": "Safe",
 };

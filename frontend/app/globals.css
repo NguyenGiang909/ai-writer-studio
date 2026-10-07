@@ -389,6 +389,13 @@ html[data-theme="dark"] .read-p{color:#dedbd3}
 .wave-chip.done{color:#2f6f51;border-color:#2f6f5140}
 .wave-chip.current{color:var(--teal);border-color:var(--teal);background:#386d6512}
 .wave-chip small{opacity:.7}
+.pill.live{color:var(--teal);border-color:var(--teal)}
+.pill.live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--teal);animation:pulse 1.4s ease-in-out infinite}
+.pill.ok{color:#2f6f51;border-color:#2f6f5140}
+.pill.err{color:#883f36;border-color:#deb6ac}
+html[data-theme="dark"] .pill.ok{color:#8fc4a8;border-color:#8fc4a840}
+html[data-theme="dark"] .pill.err{color:#f0b0a9;border-color:#77514b}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
 
 /* WriterPen — bút máy viết; chỉ animate khi .working, idle = nâng bút nghỉ */
 .wpen-stage{position:relative;width:370px;height:210px;max-width:100%;margin:4px auto 0}
