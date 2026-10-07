@@ -860,6 +860,7 @@ const EN: Record<string, string> = {
   "Đang có phiên tạo truyện": "Authoring session in progress",
   "Cách chạy": "Flow",
   "Dựng theo hồi": "Build by arc",
+  "Dàn ý & viết theo hồi": "Outline & write by arc",
   "Theo sóng — từng hồi một": "Rolling — one arc at a time",
   "Toàn bộ — khung trước, viết sau": "Batch — outline first, write later",
   "Dàn hồi → viết hết hồi đó → hồi sau học theo văn đã viết. Chạy liên tục, có thể bấm dừng sau hồi đang viết.":

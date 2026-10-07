@@ -27,7 +27,7 @@ const PHASE_META: Record<string, { icon: string; label: string }> = {
   cast: { icon: "♙", label: "Nhân vật" },
   world: { icon: "◎", label: "Thế giới" },
   outline: { icon: "≋", label: "Dàn ý" },
-  build: { icon: "❖", label: "Dựng theo hồi" },
+  build: { icon: "❖", label: "Dàn ý & viết theo hồi" },
   writing: { icon: "✎", label: "Viết văn" },
 };
 
@@ -39,7 +39,7 @@ const PHASE_LINKS: Record<string, { href: string; label: string }> = {
   writing: { href: "", label: "Mở Bản thảo" },
 };
 
-const FLOW_META: Record<string, { label: string; desc: string }> = {
+export const FLOW_META: Record<string, { label: string; desc: string }> = {
   rolling: {
     label: "Theo sóng — từng hồi một",
     desc: "Dàn hồi → viết hết hồi đó → hồi sau học theo văn đã viết. Chạy liên tục, có thể bấm dừng sau hồi đang viết.",
