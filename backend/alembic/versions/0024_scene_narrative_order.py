@@ -20,6 +20,12 @@ _KEY_MAP = {
     "sinh tử": "lifecycle", "sống/chết": "lifecycle",
     "hiện trạng sống": "lifecycle", "trạng thái sống": "lifecycle",
     "sở hữu": "ownership", "thuộc về": "ownership", "chủ sở hữu": "ownership",
+    "tuổi": "age", "độ tuổi": "age", "tuổi hiện tại": "age",
+    "lứa tuổi": "age", "năm sinh": "age",
+    "lớp": "education", "lớp học": "education", "lớp_học": "education",
+    "khối": "education", "học lớp": "education", "trường học": "education",
+    "trường_học": "education", "trường": "education", "năm học": "education",
+    "cấp học": "education", "năm nay lên lớp": "education",
 }
 
 

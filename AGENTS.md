@@ -38,8 +38,10 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 
 - `ai_turns` table (`backend/app/models/memory.py`, alembic `0016`): ghi mọi call `ai/complete` — task/scene/prompt/reply/provider
 - `compose.py::_story_context`: session-turns (≤3 turn gần của scene, task ∈ MEMORY_TASKS), StorySummary non-stale theo ancestor chain, characters/canon **ranked theo relevance** (không cắt [:N] ngây), constraints cap 20 dòng, manifest `included ~Ntok [label]`/`omitted`
-- `build_story_prompt` tasks: `writing/expand/scene_expand` (WRITING_SYSTEM + constraints + BRIEF), `revision`, `extraction`, `skeleton` (SKELETON_SYSTEM + open threads), `chapter_outline` (system riêng + chapter-info + open threads, output `Tên cảnh — beat`), `summarization` (tóm tắt scene → StorySummary), `discussion/chat/brainstorm` (raw prompt)
+- `build_story_prompt` tasks: `writing/expand/scene_expand`+`chapter_write` (WRITING_SYSTEM + constraints + BRIEF), `revision`, `extraction`, `skeleton` (SKELETON_SYSTEM + open threads), `chapter_outline` (system riêng + chapter-info + **bedrock states** + open threads, output `Tên cảnh — beat`), `summarization` (tóm tắt scene → StorySummary), `discussion/chat/brainstorm` (raw prompt)
 - Post-gen: `writing/expand/scene_expand/revision` có scene_id → check `restricted_appearance` trên draft → trả `issues[]`
+- **Neo vị trí (m11)**: `scenes.narrative_order = chapter.order_index` (chapter-scale, gán lúc dàn cảnh + migration 0024 backfill); `canonical_state_key` gom key tự do (nơi ở→location, tuổi→age, lớp/trường→education, sinh tử→lifecycle, sở hữu→ownership); `states_at` lọc state có narrative_order > vị trí cảnh; `build_constraints` dedupe theo canonical key; `chapter_outline` có block "Hiện trạng nhân vật tại điểm này" (bedrock: tuổi/lớp/ở/lifecycle); cast_gen xin `age`/`context` → h_cast seed StoryState narr=0; chapter_facts xin `recap` → upsert StorySummary chương (0 call thêm); `h_chapter_write` (fast mode) viết cả chương 1 call, marker `### CẢNH:` parse theo tên→thứ tự, cảnh lọt → scene_write bù; `_post_write_issues` flag restricted_appearance + LOCATION_DRIFT vào step output
+- Router: `TASK_PREF_FALLBACK` (chapter_write→scene_expand) tránh task mới rơi FakeProvider
 
 ## Đã xong gần đây
 

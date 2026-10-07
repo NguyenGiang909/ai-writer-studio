@@ -368,6 +368,16 @@ async def h_cast(db, run, step):
                        importance=imp, sort_order=len(created))
         db.add(ch); await db.flush()
         provenance(db, run, "character", ch.id)
+        # seed trạng thái nền lúc mở truyện (narr=0 → mọi vị trí đều kế thừa,
+        # trích xuất sau sẽ ghi đè nếu đổi) — neo tuổi/lớp cho toàn pipeline
+        for key, val in (("age", c.get("age")), ("education", c.get("context"))):
+            val = (val or "").strip()
+            if val:
+                st = StoryState(project_id=run.project_id, entity_type="character",
+                                entity_id=ch.id, key=key,
+                                value_text=_clip(val, 160), narrative_order=0)
+                db.add(st); await db.flush()
+                provenance(db, run, "story_state", st.id)
         for a in (c.get("aliases") or [])[:5]:
             a = (a or "").strip()
             if a:

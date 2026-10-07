@@ -22,6 +22,13 @@ CANONICAL_STATE_KEYS = {
                   "trạng thái sống"},
     "ownership": {"ownership", "sở hữu", "thuộc về", "chủ sở hữu"},
     "status": {"status", "tình trạng", "tâm trạng"},
+    # tuổi + bậc học — lỗi thật đã gặp: model dàn "tập đọc" (tiểu học)
+    # cho nhân vật cấp 2 vì không có tuổi/lớp trong prompt
+    "age": {"age", "tuổi", "độ tuổi", "tuổi hiện tại", "lứa tuổi",
+            "năm sinh", "tuổi/nghề"},
+    "education": {"education", "lớp", "lớp học", "lớp_học", "khối",
+                  "học lớp", "trường học", "trường_học", "trường",
+                  "năm học", "cấp học", "năm nay lên lớp"},
 }
 
 
@@ -90,6 +97,14 @@ async def build_constraints(
         elif key == "location":
             if not who: continue
             must.append(f"{who} đang ở {s.value_text} — cần sự kiện di chuyển để ở nơi khác")
+        elif key == "age":
+            if not who: continue
+            must.append(f"{who} hiện {s.value_text} — tuổi đã chốt, không viết "
+                        f"hành vi/hoạt động lệch lứa tuổi này")
+        elif key == "education":
+            if not who: continue
+            must.append(f"{who} — {s.value_text} — bậc học/lớp đã chốt, "
+                        f"không xếp sai hoạt động học")
         elif key == "ownership":
             must.append(f"{s.value_text} (ownership đã ghi — không đổi chủ tự do)")
         elif key.startswith("ability."):

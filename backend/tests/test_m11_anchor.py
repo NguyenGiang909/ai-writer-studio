@@ -33,6 +33,9 @@ def test_canonical_state_key():
     assert canonical_state_key("sinh tử") == "lifecycle"
     assert canonical_state_key("sở hữu") == "ownership"
     assert canonical_state_key("tâm trạng") == "status"
+    assert canonical_state_key("tuổi") == "age"
+    assert canonical_state_key("lớp") == "education"
+    assert canonical_state_key("trường học") == "education"
     assert canonical_state_key("bloodline") == "bloodline"  # passthrough
     assert canonical_state_key(None) == "state"
 
@@ -80,6 +83,16 @@ async def test_constraints_hide_future_and_orphans(client):
                           entity_id="orphan-uuid-rac", key="location",
                           value_text="quán net", narrative_order=1))
         db.add(Thread(project_id=pid, title="Chuyển nhà", status="OPEN"))
+        # tuổi/lớp tại vị trí — bậc học chốt cho dàn ý (lỗi "tập đọc" cấp 2)
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="tuổi", value_text="11 tuổi",
+                          narrative_order=1))
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="lớp", value_text="lớp 9 cấp 2",
+                          narrative_order=1))
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="age", value_text="40 tuổi",
+                          narrative_order=20))  # tương lai — không được lộ
         await db.commit()
         m = await build_constraints(db, pid, sc)
         text = render_constraints(m)
@@ -87,6 +100,9 @@ async def test_constraints_hide_future_and_orphans(client):
         assert "khu tập thể" not in text            # state tương lai bị ẩn
         assert "quán net" not in text                # entity orphan bị bỏ
         assert "chỉ đụng tới nếu xương cảnh yêu cầu" in text  # thread không mời dẫn
+        assert "Minh hiện 11 tuổi" in text            # age canonical → MUST
+        assert "lớp 9 cấp 2" in text                 # education canonical → MUST
+        assert "40 tuổi" not in text                 # tuổi tương lai bị ẩn
 
 
 @pytest.mark.asyncio
@@ -132,6 +148,37 @@ async def test_scene_expand_prompt_has_anchor(client):
 
 
 @pytest.mark.asyncio
+async def test_chapter_outline_has_bedrock(client):
+    """Dàn cảnh nhận bedrock: tuổi/lớp/ở của nhân vật tại vị trí chương —
+    tránh lỗi dàn 'tập đọc' cho nhân vật cấp 2."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    async with SessionLocal() as db:
+        c = Character(project_id=pid, name="Sơn")
+        db.add(c); await db.flush()
+        ch = Chapter(project_id=pid, title="Trường làng", order_index=2)
+        db.add(ch); await db.flush()
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="age", value_text="11 tuổi",
+                          narrative_order=0))
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="education",
+                          value_text="lớp 9 cấp 2", narrative_order=0))
+        db.add(StoryState(project_id=pid, entity_type="character",
+                          entity_id=c.id, key="location", value_text="làng",
+                          narrative_order=1))
+        cid = ch.id
+        await db.commit()
+    async with SessionLocal() as db:
+        _, body, manifest = await build_story_prompt(
+            db, pid, "chapter_outline", "", chapter_id=cid)
+        assert "Hiện trạng nhân vật tại điểm này" in body
+        assert "Sơn · tuổi: 11 tuổi" in body
+        assert "Sơn · lớp/trường: lớp 9 cấp 2" in body
+        assert "Sơn · đang ở: làng" in body
+        assert "bedrock-states" in "\n".join(manifest)
+
+
+@pytest.mark.asyncio
 async def test_rolling_anchor_pipeline(client):
     """End-to-end rolling: scenes có narrative_order, key chuẩn hoá,
     recap → StorySummary, scene_write step trả issues[]."""
@@ -165,6 +212,11 @@ async def test_rolling_anchor_pipeline(client):
             select(StoryState).where(StoryState.project_id == pid))).all()}
         assert "location" in keys              # "nơi ở" đã chuẩn hoá
         assert "nơi ở" not in keys
+        assert "age" in keys and "education" in keys  # cast seed trạng thái nền
+        seeded = [s for s in (await db.scalars(select(StoryState).where(
+            StoryState.project_id == pid, StoryState.key == "age"))).all()
+                  if s.narrative_order == 0]
+        assert seeded and any("tuổi" in (s.value_text or "") for s in seeded)
         sums = (await db.scalars(select(StorySummary).where(
             StorySummary.project_id == pid,
             StorySummary.scope_type == "chapter"))).all()

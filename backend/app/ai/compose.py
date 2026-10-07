@@ -120,11 +120,15 @@ CAST_GEN_SYSTEM = (
     "DUY NHẤT JSON object hợp lệ:\n"
     '{"characters":[{"name":str,"role":"protagonist|deuteragonist|antagonist|'
     'supporting|minor","summary":str,"voice_notes":str,"status":"active",'
-    '"importance":0-3 (0=quan trọng nhất),"aliases":[str]}],'
+    '"importance":0-3 (0=quan trọng nhất),"aliases":[str],'
+    '"age":str,"context":str}],'
     '"relationships":[{"a":str,"b":str,"type":str,"notes":str}]}\n'
     "6-12 nhân vật. a/b trong relationships phải khớp name đã sinh. Mỗi nhân vật có "
     "vai trò rõ trong premise — không nhân vật trang trí. "
-    "summary ≤60 từ, voice_notes ≤25 từ — súc tích, không viết dài."
+    "summary ≤60 từ, voice_notes ≤25 từ — súc tích, không viết dài. "
+    "age = tuổi LÚC TRUYỆN MỞ ĐẦU (vd '11 tuổi', '30 mấy'); context = bối cảnh "
+    "khởi đầu 1 cụm ngắn — lớp/trường/nghề/nơi ở (vd 'lớp 5, trường làng'). "
+    "Đây là neo quan trọng: truyện dài sẽ nhảy thời gian — chốt mốc ngay từ đầu."
 )
 
 WORLD_GEN_SYSTEM = (
@@ -220,8 +224,10 @@ CHAPTER_FACTS_SYSTEM = (
     '"recap":str}\n'
     "recap = 2-4 câu tóm tắt chương: diễn biến chính + trạng thái sau chương "
     "(ai đang ở đâu, việc gì vừa xảy ra) — dùng làm context cho các chương sau. "
-    "entity/state chỉ trích cái THẬT SỰ thay đổi trong chương. thread_title mới = "
-    "mở thread mới; khớp thread đã có = beat trên thread đó. Không suy diễn ngoài văn."
+    "entity/state chỉ trích cái THẬT SỰ thay đổi trong chương. field ưu tiên key "
+    "chuẩn: location (nơi ở), lifecycle (sống/chết), ownership (sở hữu), "
+    "age (tuổi), education (lớp/trường). thread_title mới = mở thread mới; khớp "
+    "thread đã có = beat trên thread đó. Không suy diễn ngoài văn."
 )
 
 CHARACTER_PROFILE_SYSTEM = (
@@ -235,6 +241,33 @@ CHARACTER_PROFILE_SYSTEM = (
     '"aliases" (mảng tên gọi khác xuất hiện trong văn, tối đa 6). '
     "Chỉ dùng dữ kiện có trong dữ liệu — không suy diễn, không bịa chi tiết."
 )
+
+
+async def _bedrock_states(db: AsyncSession, pid: str,
+                          narrative_order: int | None) -> str:
+    """Trạng thái nền (tuổi/lớp/nơi ở/sống-chết) của nhân vật tại vị trí
+    narrative — ~8 dòng, đặt vào prompt dàn cảnh/chương để model không bịa
+    hoạt động lệch lứa tuổi."""
+    names = {c.id: c.name for c in (await db.scalars(
+        select(Character).where(Character.project_id == pid))).all()}
+    if not names:
+        return ""
+    lines = []
+    for s in await states_at(db, pid, entity_type="character",
+                             narrative_order=narrative_order):
+        key = canonical_state_key(s.key)
+        if key not in ("age", "education", "location", "lifecycle"):
+            continue
+        who = names.get(s.entity_id)
+        if not who or not (s.value_text or "").strip():
+            continue
+        label = {"age": "tuổi", "education": "lớp/trường",
+                 "location": "đang ở", "lifecycle": "hiện trạng"}[key]
+        lines.append(f"- {who} · {label}: {_clip(s.value_text, 140)}")
+    if not lines:
+        return ""
+    return ("Hiện trạng nhân vật tại điểm này (đã chốt — không viết lệch):\n"
+            + "\n".join(lines[:10]))
 
 
 def _est(text: str) -> int:
@@ -329,7 +362,8 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
             StoryEvent.narrative_order.desc(), StoryEvent.id.desc()).limit(8))).all())
         key_sts = [s for s in await states_at(db, pid, story_time=sc.story_time,
                                               narrative_order=t_narr)
-                   if canonical_state_key(s.key) in ("location", "lifecycle")][:6]
+                   if canonical_state_key(s.key) in ("location", "lifecycle",
+                                                     "age", "education")][:6]
         if key_sts:
             ent_names = {c.id: c.name for c in (await db.scalars(
                 select(Character).where(Character.project_id == pid))).all()}
@@ -528,6 +562,12 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
                         (s.title or "?") for s in sibs[:20]))
                 extras.append("Chương cần dàn ý:\n" + "\n".join(lines))
                 manifest.append("included chapter-info")
+                # bedrock: tuổi/lớp/ở/sống-chết của nhân vật tại vị trí chương —
+                # lỗi thật: model dàn "tập đọc" cho cậu cấp 2 vì không biết lứa
+                bed = await _bedrock_states(db, pid, ch.order_index)
+                if bed:
+                    extras.append(bed)
+                    manifest.append("included bedrock-states")
         block, n = await _open_threads_block(db, pid)
         if block:
             extras.append(block)
