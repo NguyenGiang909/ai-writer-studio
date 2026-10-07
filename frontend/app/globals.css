@@ -126,6 +126,7 @@ body{font-size:16px}
 .card{padding:20px}
 .card h3{font-size:19px}
 .dash-head h1{font-size:32px}
+.dashboard{container-type:inline-size}
 .btn{font-size:14px;padding:9px 14px}
 .field label{font-size:13px}
 .field textarea,.field input{font-size:14px;padding:11px}
@@ -388,10 +389,34 @@ html[data-theme="dark"] .read-p{color:#dedbd3}
 .wave-chip.done{color:#2f6f51;border-color:#2f6f5140}
 .wave-chip.current{color:var(--teal);border-color:var(--teal);background:#386d6512}
 .wave-chip small{opacity:.7}
+
+/* WriterPen — bút máy viết; chỉ animate khi .working, idle = nâng bút nghỉ */
+.wpen-stage{position:relative;width:370px;height:210px;max-width:100%;margin:4px auto 0}
+.wpen-paper{position:absolute;inset:16px;background:linear-gradient(180deg,#fffefb,#fffaf3);border-radius:18px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.09),inset 0 1px 0 rgba(255,255,255,.9)}
+.wpen-paper:before,.wpen-paper:after{content:"";position:absolute;left:28px;right:28px;height:1px;background:var(--line)}
+.wpen-paper:before{top:72px}
+.wpen-paper:after{top:112px}
+.wpen-scribble{position:absolute;left:118px;top:82px;width:96px;height:15px;overflow:visible}
+.wpen-scribble path{fill:none;stroke:var(--ink);stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:132;stroke-dashoffset:132}
+.wpen-stage.working .wpen-scribble path{animation:wpenWrite 2.05s ease-in-out infinite}
+@keyframes wpenWrite{0%{stroke-dashoffset:132;opacity:.15}10%{opacity:.9}78%{stroke-dashoffset:0;opacity:.9}100%{stroke-dashoffset:0;opacity:.28}}
+.wpen-pen{position:absolute;width:58px;height:92px;left:104px;top:20px;transform-origin:50% 96%;filter:drop-shadow(0 6px 8px rgba(0,0,0,.14))}
+.wpen-img{width:100%;height:100%;background:url("/writer-pen.png") center/contain no-repeat}
+.wpen-stage.working .wpen-pen{animation:wpenMove 2.05s ease-in-out infinite}
+@keyframes wpenMove{0%{transform:translate(0,0) rotate(136deg)}20%{transform:translate(18px,-1px) rotate(137deg)}40%{transform:translate(38px,1px) rotate(136deg)}60%{transform:translate(58px,-1px) rotate(135deg)}80%{transform:translate(78px,0) rotate(134deg)}100%{transform:translate(0,0) rotate(136deg)}}
+.wpen-stage.idle .wpen-pen{left:182px;top:26px;transform:translate(0,8px) rotate(136deg);transition:left .45s ease,top .45s ease,transform .45s ease}
+.wpen-status{position:absolute;left:34px;bottom:22px;font-size:12px;color:var(--muted)}
+.wpen-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#c29b53;margin-right:6px;vertical-align:1px}
+.wpen-stage.working .wpen-dot{animation:wpenPulse 1s ease-in-out infinite}
+@keyframes wpenPulse{50%{opacity:.25;transform:scale(.75)}}
+html[data-theme="dark"] .wpen-paper{background:linear-gradient(180deg,#3a3b3d,#333436);box-shadow:0 10px 28px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06)}
+html[data-theme="dark"] .wpen-paper:before,html[data-theme="dark"] .wpen-paper:after{background:#4c4d4f}
+@media (max-width:520px){.wpen-stage{transform:scale(.82);transform-origin:top center;margin-bottom:-38px}}
+@media (prefers-reduced-motion:reduce){.wpen-stage.working .wpen-pen,.wpen-stage.working .wpen-scribble path,.wpen-stage.working .wpen-dot{animation:none!important}.wpen-scribble path{stroke-dashoffset:0}}
 html[data-theme="dark"] .auth-stage{background:#3a3b3d;border-color:#515254}
 html[data-theme="dark"] .auth-stage .auth-ico{background:#4a4b4d;color:#edeae3}
 html[data-theme="dark"] .auth-stage.active .auth-ico{background:#5d938a;color:#101415}
 html[data-theme="dark"] .auth-steps .astep,html[data-theme="dark"] .auth-payload-json{background:#2f3033;border-color:#4c4d4f;color:#d9d6cd}
-@media(max-width:1100px){.authoring-grid{grid-template-columns:170px minmax(0,1fr)}.auth-log{grid-column:1/-1}}
-@media(max-width:760px){.authoring-grid{grid-template-columns:1fr}.auth-stages{grid-template-columns:repeat(2,1fr)}}
+@container(max-width:880px){.authoring-grid{grid-template-columns:170px minmax(0,1fr)}.auth-log{grid-column:1/-1}}
+@container(max-width:560px){.authoring-grid{grid-template-columns:1fr}.auth-stages{grid-template-columns:repeat(2,1fr)}}
 .prov-ai{font-style:normal;color:#c29b53;font-size:10px;margin-left:5px;vertical-align:super}

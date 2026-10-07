@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getJSON, postJSON } from "../lib/api";
 import { t, type Lang } from "../lib/i18n";
+import WriterPen, { penLabel } from "./WriterPen";
 
 type Step = { key: string; status: string; error?: string; at: string };
 type Run = {
@@ -211,6 +212,10 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
 
           {/* cột giữa: payload stage hiện tại + điều khiển */}
           <section className="card" style={{ margin: 0 }}>
+            <WriterPen
+              working={run.status === "running"}
+              label={penLabel(run, steps.find((s) => s.status === "running")?.key, lang)}
+            />
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <h2 style={{ margin: 0, flex: 1 }}>
                 {t(lang, (PHASE_META[run.phase]?.label ?? run.phase))}

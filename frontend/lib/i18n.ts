@@ -866,4 +866,17 @@ const EN: Record<string, string> = {
   "✓ Sẽ dừng sau hồi này": "✓ Will stop after this arc",
   "Hồi đang viết xong thì dừng lại chờ duyệt — bấm lại để huỷ":
     "Stops for review once the current arc finishes — click again to cancel",
+  "Sẵn sàng": "Ready",
+  "AI đang làm việc…": "AI is working…",
+  "Đang viết cảnh…": "Writing a scene…",
+  "Đang dàn cảnh…": "Outlining scenes…",
+  "Đang trích diễn biến…": "Extracting chapter facts…",
+  "Đang dàn khung…": "Outlining…",
+  "Đang dựng thế giới…": "Building the world…",
+  "Đang tạo nhân vật…": "Creating characters…",
+  "Đang phác premise…": "Drafting premise…",
+  "Chờ bạn duyệt": "Waiting for your review",
+  "Đã tạm dừng": "Paused",
+  "Có lỗi — bấm Tiếp tục để thử lại": "Error — press Resume to retry",
+  "Hoàn tất": "Complete",
 };
