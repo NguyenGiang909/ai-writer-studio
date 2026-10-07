@@ -23,6 +23,12 @@ from app.services.credentials import decrypt_secret
 
 DEV_USER = "local-author"
 
+# task mới chưa có preference riêng → kế thừa pref của task gần nhất,
+# tránh rơi xuống FakeProvider trên run thật
+TASK_PREF_FALLBACK = {
+    "chapter_write": "scene_expand",
+}
+
 
 def build_provider(cred: ProviderCredential, model: str | None = None):
     """Credential -> provider adapter. base_url của credential override endpoint mặc định
@@ -55,16 +61,25 @@ class ModelRouter:
     def __init__(self, db: AsyncSession | None = None):
         self.db = db
 
+    async def _pref_for_task(self, task: str,
+                             project_id: str | None) -> ModelPreference | None:
+        rows = list((await self.db.scalars(select(ModelPreference).where(
+            ModelPreference.user_id == DEV_USER,
+            ModelPreference.task == task,
+        ))).all())
+        proj = next((r for r in rows
+                     if project_id and r.project_id == project_id), None)
+        return proj or next((r for r in rows if r.project_id is None), None)
+
     async def _preference(self, request: ModelRequest) -> ModelPreference | None:
         if self.db is None:
             return None
-        rows = list((await self.db.scalars(select(ModelPreference).where(
-            ModelPreference.user_id == DEV_USER,
-            ModelPreference.task == request.task,
-        ))).all())
-        proj = next((r for r in rows
-                     if request.project_id and r.project_id == request.project_id), None)
-        return proj or next((r for r in rows if r.project_id is None), None)
+        pref = await self._pref_for_task(request.task, request.project_id)
+        if pref is None:
+            fb = TASK_PREF_FALLBACK.get(request.task)
+            if fb:
+                pref = await self._pref_for_task(fb, request.project_id)
+        return pref
 
     async def _provider_for(self, request: ModelRequest):
         pref = await self._preference(request)

@@ -54,8 +54,9 @@ _PHASE_STEP_PREFIX = {
     "cast": "cast.",
     "world": "world.",
     "outline": ("outline.", "chapter_scenes."),
-    "writing": ("scene_write.", "chapter_facts."),
-    "build": ("outline.", "chapter_scenes.", "scene_write.", "chapter_facts."),
+    "writing": ("scene_write.", "chapter_write.", "chapter_facts."),
+    "build": ("outline.", "chapter_scenes.", "scene_write.", "chapter_write.",
+              "chapter_facts."),
 }
 
 
@@ -134,16 +135,24 @@ _WORLD_PLAN = (
 )
 
 
-def _ch_step(f: Facts, ch) -> Step | None:
+def _ch_step(run: AuthoringRun, f: Facts, ch) -> Step | None:
     """Đơn vị thiếu đầu tiên TRONG một chương: dàn cảnh → viết từng cảnh → facts."""
     scenes = f.scenes_by_chapter.get(ch.id, [])
     if not scenes and f"chapter_scenes.{ch.id}" not in f.done:
         return Step(f"chapter_scenes.{ch.id}", "chapter_outline",
                     f"Dàn cảnh cho chương {ch.order_index}: {ch.title}", ch.id)
-    for sc in scenes:
-        if not (sc.prose or "").strip() and f"scene_write.{sc.id}" not in f.done:
-            return Step(f"scene_write.{sc.id}", "scene_expand",
-                        f"Viết cảnh “{sc.title or '?'}” (chương {ch.order_index})", sc.id)
+    unwritten = [s for s in scenes
+                 if not (s.prose or "").strip()
+                 and f"scene_write.{s.id}" not in f.done]
+    # fast (API mạnh): gom cả chương vào 1 call; cảnh lọt parse → scene_write bù
+    if run.call_mode == "fast" and len(unwritten) > 1 \
+            and f"chapter_write.{ch.id}" not in f.done:
+        return Step(f"chapter_write.{ch.id}", "chapter_write",
+                    f"Viết cả chương {ch.order_index} ({len(unwritten)} cảnh, 1 call)",
+                    ch.id)
+    for sc in unwritten:
+        return Step(f"scene_write.{sc.id}", "scene_expand",
+                    f"Viết cảnh “{sc.title or '?'}” (chương {ch.order_index})", sc.id)
     if scenes and f"chapter_facts.{ch.id}" not in f.done:
         return Step(f"chapter_facts.{ch.id}", "chapter_facts",
                     f"Trích facts chương {ch.order_index}", ch.id)
@@ -158,7 +167,7 @@ def _arc_step(run: AuthoringRun, f: Facts, arc) -> Step | None:
         return Step(f"outline.chapters.{arc.id}", "arc_chapters",
                     f"Dàn chương hồi “{arc.title}”", arc.id)
     for ch in chs:
-        s = _ch_step(f, ch)
+        s = _ch_step(run, f, ch)
         if s:
             return s
     return None
@@ -220,8 +229,8 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
         if target is None:
             # hết hồi → chương mồ côi (tác giả tự thêm ngoài hồi) vẫn được build
             och = next((c for c in f.chapters
-                        if not c.arc_id and _ch_step(f, c) is not None), None)
-            return _ch_step(f, och) if och else None
+                        if not c.arc_id and _ch_step(run, f, c) is not None), None)
+            return _ch_step(run, f, och) if och else None
         if cur != target.id:
             want_pause = run.pause_after_wave \
                 or getattr(run, "goal_mode", "end") == "waves"
@@ -237,14 +246,10 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
         return _arc_step(run, f, target)
     if ph == "writing":
         for ch in f.chapters:
-            scenes = f.scenes_by_chapter.get(ch.id, [])
-            for sc in scenes:
-                if not (sc.prose or "").strip() and f"scene_write.{sc.id}" not in f.done:
-                    return Step(f"scene_write.{sc.id}", "scene_expand",
-                                f"Viết cảnh “{sc.title or '?'}” (chương {ch.order_index})", sc.id)
-            if scenes and f"chapter_facts.{ch.id}" not in f.done:
-                return Step(f"chapter_facts.{ch.id}", "chapter_facts",
-                            f"Trích facts chương {ch.order_index}", ch.id)
+            s = _ch_step(run, f, ch)
+            if s and s.key.startswith(("scene_write.", "chapter_write.",
+                                       "chapter_facts.")):
+                return s
         return None
     return None
 
@@ -853,6 +858,69 @@ async def h_scene_write(db, run, step):
     return {"chars": len(text), "issues": issues}
 
 
+async def h_chapter_write(db, run, step):
+    """Fast mode: 1 call viết cả chương — model tự giữ nhân quả nội chương.
+    Output marker '### CẢNH: <tên>' chia cảnh; cảnh không parse được để
+    prose trống → tick sau scene_write bù (idempotent)."""
+    ch = await db.get(Chapter, step.ref_id)
+    if not ch:
+        raise ValueError("chapter không tồn tại")
+    scenes = [s for s in (await db.scalars(select(Scene).where(
+        Scene.chapter_id == ch.id).order_by(Scene.order_index))).all()
+        if not (s.prose or "").strip()]
+    if not scenes:
+        return {"scenes_written": 0, "issues": []}
+    w = run.words_per_scene or 900
+    plan = "\n".join(
+        f"### CẢNH: {s.title or f'Cảnh {i+1}'}\nBeat: {s.skeleton or s.title or '-'}"
+        for i, s in enumerate(scenes))
+    prompt = (f"Viết TRỌN chương {ch.order_index} “{ch.title or ''}” — "
+              f"{len(scenes)} cảnh liền nhau, mỗi cảnh ~{w} chữ.\n"
+              "Các cảnh phải NỐI TIẾP nhau mượt mạch (cùng ngày thì chi tiết "
+              "khớp nhau tuyệt đối: đồ vật, vị trí, việc đã xảy ra).\n"
+              "Bắt đầu mỗi cảnh bằng DUY NHẤT dòng '### CẢNH: <tên cảnh>' "
+              "đúng tên trong dàn ý dưới.\n\n=== DÀN Ý CHƯƠNG ===\n" + plan +
+              "\n\nXuất DUY NHẤT văn xuôi, không lời dẫn.")
+    text, _ = await ai_call(db, run, "chapter_write", prompt,
+                            scene_id=scenes[0].id)
+    # chia theo marker '### CẢNH: <tên>' — khớp theo tên trước (model có thể
+    # đảo thứ tự), còn lại đi theo thứ tự dàn ý
+    marks = list(re.finditer(r"(?im)^#{1,4}\s*CẢNH\s*:?\s*(.*)$", text or ""))
+    blocks: list[tuple[str, str]] = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        body_ = text[m.end():end].strip()
+        if len(body_) >= 40:
+            blocks.append((m.group(1).strip(), body_))
+    if not blocks and len((text or "").strip()) >= 40:
+        blocks = [("", text.strip())]  # không marker → đổ vào cảnh đầu
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", (s or "").strip().lower())
+    used: set[int] = set()
+    issues: list[dict] = []
+    written = 0
+    for sc in scenes:
+        bi = next((i for i, (bt, _) in enumerate(blocks)
+                   if i not in used and bt
+                   and (_norm(bt) == _norm(sc.title or "")
+                        or _norm(bt) in _norm(sc.title or "")
+                        or _norm(sc.title or "") in _norm(bt))), None)
+        if bi is None:
+            bi = next((i for i in range(len(blocks)) if i not in used), None)
+        if bi is None:
+            break
+        used.add(bi)
+        sc.prose = blocks[bi][1]
+        await db.flush()
+        provenance(db, run, "scene", sc.id)
+        issues += await _post_write_issues(db, run, sc, sc.prose)
+        written += 1
+    if not written:
+        raise ValueError("chapter_write không parse được cảnh nào")
+    return {"scenes_written": written, "scenes_left": len(scenes) - written,
+            "issues": issues[:8]}
+
+
 async def h_chapter_facts(db, run, step):
     """Commit ritual — trích facts từ prose chương vào story tables (như ainovel ChapterFacts)."""
     ch = await db.get(Chapter, step.ref_id)
@@ -942,7 +1010,8 @@ HANDLERS = {
     "outline.skeleton": h_outline_skeleton, "outline.generate": h_outline_all,
     "arc_chapters": h_arc_chapters,
     "chapter_outline": h_chapter_scenes,
-    "scene_expand": h_scene_write, "chapter_facts": h_chapter_facts,
+    "scene_expand": h_scene_write, "chapter_write": h_chapter_write,
+    "chapter_facts": h_chapter_facts,
 }
 
 # ---------- runner ----------

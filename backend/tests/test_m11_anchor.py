@@ -176,3 +176,42 @@ async def test_rolling_anchor_pipeline(client):
         for w in writes:
             out = json.loads(w.output_json or "{}")
             assert "issues" in out and isinstance(out["issues"], list)
+
+
+@pytest.mark.asyncio
+async def test_fast_mode_writes_whole_chapter(client):
+    """call_mode=fast: chương viết bằng 1 call chapter_write, không tách cảnh."""
+    pid = (await client.post("/api/v1/projects",
+                             json={"name": "Fast"})).json()["id"]
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"prompt": "người mất ký ức",
+                             "call_mode": "fast"})).raise_for_status()
+    run_id = (await client.get(
+        f"/api/v1/projects/{pid}/authoring/status")).json()["run"]["id"]
+    for _ in range(80):
+        await eng.tick(run_id)
+        st = (await client.get(
+            f"/api/v1/projects/{pid}/authoring/status")).json()["run"]
+        if st["status"] == "awaiting_review":
+            ap = (await client.post(
+                f"/api/v1/projects/{pid}/authoring/approve")).json()
+            if ap["status"] == "complete":
+                break
+        elif st["status"] in {"complete", "failed"}:
+            break
+    assert st["status"] == "complete"
+    async with SessionLocal() as db:
+        steps = (await db.scalars(select(AuthoringStep).where(
+            AuthoringStep.project_id == pid))).all()
+        keys = [s.step_key for s in steps]
+        chw = [k for k in keys if k.startswith("chapter_write.")]
+        assert chw, "fast mode phải gom chương thành 1 call"
+        assert not any(k.startswith("scene_write.") for k in keys), \
+            "fast mode parse đủ cảnh → không cần scene_write bù"
+        scenes = (await db.scalars(select(Scene).where(
+            Scene.project_id == pid))).all()
+        assert scenes and all((s.prose or "").strip() for s in scenes)
+        out = json.loads(next(
+            s for s in steps if s.step_key.startswith("chapter_write.")
+        ).output_json or "{}")
+        assert out["scenes_written"] >= 2 and "issues" in out

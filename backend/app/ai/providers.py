@@ -7,6 +7,7 @@ Interface: complete(ModelRequest) -> CompletionResult.
 """
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 
 import httpx
@@ -83,6 +84,13 @@ class FakeProvider(BaseProvider):
         if task in {"writing", "expand", "scene_expand"}:
             heading = next((ln.strip() for ln in prompt.splitlines() if ln.strip()), "Cảnh")[:80]
             text = _FAKE_EXPAND.format(heading=heading, model=self.model, prompt_tokens=tokens_in)
+        elif task == "chapter_write":
+            # gom cả chương: echo mỗi cảnh trong prompt thành 1 block có marker
+            titles = re.findall(r"### CẢNH: (.+)", prompt) or ["Một"]
+            text = "\n\n".join(
+                f"### CẢNH: {t.strip()}\n" + _FAKE_EXPAND.format(
+                    heading=t.strip(), model=self.model, prompt_tokens=tokens_in)
+                for t in titles)
         elif task in {"discussion", "chat", "brainstorm"}:
             last = next((ln.split(":", 1)[1].strip() for ln in reversed(prompt.splitlines())
                          if ln.strip().lower().startswith(("author:", "user:"))), prompt.strip()[:120])

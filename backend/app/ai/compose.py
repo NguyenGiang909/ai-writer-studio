@@ -316,7 +316,8 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
 
     # --- diễn biến ĐÃ VIẾT — neo "truyện đang ở đâu" cho task viết.
     # Chỉ events/states/recap trước vị trí narrative của cảnh (không lộ tương lai).
-    if sc and task in {"writing", "expand", "scene_expand", "revision"}:
+    if sc and task in {"writing", "expand", "scene_expand", "revision",
+                       "chapter_write"}:
         t_narr = sc.narrative_order
         if t_narr is None and ch and ch.order_index is not None:
             t_narr = ch.order_index
@@ -459,7 +460,7 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
                              ) -> tuple[str | None, str, list[str]]:
     """Compose (system, prompt, context_manifest). Raw prompt for unknown tasks."""
     ctx, manifest = await _story_context(db, pid, scene_id, user_prompt, task)
-    if task in {"writing", "expand", "scene_expand"}:
+    if task in {"writing", "expand", "scene_expand", "chapter_write"}:
         constraints = ""
         if scene_id:
             sc = await db.get(Scene, scene_id)

@@ -103,8 +103,8 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
               <div className="field" style={{ margin: 0 }}>
                 <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Chế độ gọi AI")}</label>
                 <select value={callMode} onChange={(e) => setCallMode(e.target.value)} style={{ width: "100%" }}>
-                  <option value="safe">{t(lang, "An toàn — nhiều call nhỏ")}</option>
-                  <option value="fast">{t(lang, "Nhanh — ít call (API mạnh)")}</option>
+                  <option value="safe">{t(lang, "An toàn — call nhỏ từng cảnh")}</option>
+                  <option value="fast">{t(lang, "Nhanh — gom cả chương (API mạnh)")}</option>
                 </select>
               </div>
             </div>

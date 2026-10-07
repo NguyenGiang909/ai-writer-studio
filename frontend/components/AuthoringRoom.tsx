@@ -75,6 +75,7 @@ const STEP_KIND: Record<string, string> = {
   "outline.chapters": "Dàn chương",
   "chapter_scenes": "Dàn cảnh",
   "scene_write": "Viết cảnh",
+  "chapter_write": "Viết cả chương",
   "chapter_facts": "Trích diễn biến",
   "__wave_pause__": "Dừng cuối sóng",
 };
@@ -213,8 +214,8 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 onChange={(e) => setCallMode(e.target.value)}
                 style={{ width: "100%" }}
               >
-                <option value="safe">{t(lang, "An toàn — nhiều call nhỏ")}</option>
-                <option value="fast">{t(lang, "Nhanh — ít call (API mạnh)")}</option>
+                <option value="safe">{t(lang, "An toàn — call nhỏ từng cảnh")}</option>
+                <option value="fast">{t(lang, "Nhanh — gom cả chương (API mạnh)")}</option>
               </select>
             </div>
           </div>
@@ -562,7 +563,8 @@ function PhaseDetail({ ph, ctx, run, steps, lang, projectId }: {
       </>
     ) : <p className="muted">{t(lang, "Chưa có dàn ý — bước Dàn ý sẽ dựng hồi, chương và cảnh.")}</p>;
   } else if (ph === "writing") {
-    const lastWritten = steps.find((s) => s.status === "done" && s.key.startsWith("scene_write"));
+    const lastWritten = steps.find((s) => s.status === "done" &&
+        (s.key.startsWith("scene_write") || s.key.startsWith("chapter_write")));
     body = (counts.with_prose ?? 0) > 0 ? (
       <>
         <p className="pd-line">

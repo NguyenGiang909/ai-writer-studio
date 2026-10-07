@@ -139,7 +139,8 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
     display = run.phase
     if run.flow == "rolling" and run.phase == "build":
         newest = steps[0].step_key if steps else ""
-        display = "writing" if newest.split(".")[0] in ("scene_write", "chapter_facts") else "outline"
+        display = "writing" if newest.split(".")[0] in (
+            "scene_write", "chapter_write", "chapter_facts") else "outline"
     display_phases = (["premise", "cast", "world", "outline", "writing"]
                       if run.flow == "rolling" else eng.phases_for(run))
     return {
