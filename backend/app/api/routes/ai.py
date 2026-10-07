@@ -11,6 +11,7 @@ from app.models.narrative import Thread,ThreadBeat
 from app.models.truth import KnowledgeState,StoryState,CanonFact
 from app.models.memory import AiTurn
 from app.services.state import states_at,effective_at
+from app.services.constraints import canonical_state_key
 from app.ai.context import ContextBuilder,ContextItem
 from app.ai.router import ModelRouter,ModelRequest
 from app.ai.compose import build_story_prompt
@@ -53,7 +54,7 @@ async def complete(pid:str,p:CompleteRequest,db:AsyncSession=Depends(get_db)):
             ModelRequest(task=p.task,prompt=prompt,model=p.model,project_id=pid,system=system))
     except RuntimeError as e: raise HTTPException(503,str(e))
     db.add(AiTurn(project_id=pid,scope_id=p.scene_id or pid,task=p.task,
-                  prompt_excerpt=p.prompt[:1500],reply_text=(result.text or "")[:4000],
+                  prompt_excerpt=p.prompt[:4000],reply_text=(result.text or "")[:4000],
                   provider=result.provider or "",model=result.model or ""))
     await db.commit()
     issues=[]
@@ -63,7 +64,8 @@ async def complete(pid:str,p:CompleteRequest,db:AsyncSession=Depends(get_db)):
             st_t=sc.story_time if sc.story_time is not None else sc.narrative_order
             chars={c.id:c for c in (await db.scalars(select(Character).where(Character.project_id==pid))).all()}
             aliases=list((await db.scalars(select(Alias).where(Alias.project_id==pid))).all())
-            life=await states_at(db,pid,story_time=st_t,entity_type="character",key="lifecycle")
+            life=[s for s in await states_at(db,pid,story_time=st_t,entity_type="character")
+                  if canonical_state_key(s.key)=="lifecycle"]
             for st in life:
                 c=chars.get(st.entity_id)
                 if not c or not c.name: continue
@@ -198,7 +200,8 @@ async def continuity_check(pid:str,db:AsyncSession=Depends(get_db)):
         ts=[c.name]+[a.alias for a in aliases if a.character_id==c.id and a.alias]
         ts+=[w for w in re.split(r"\s+",c.name or "") if len(w)>=4]
         terms[c.id]=[t for t in dict.fromkeys(ts) if t]
-    life_states=await states_at(db,pid,entity_type="character",key="lifecycle")
+    life_states=[s for s in await states_at(db,pid,entity_type="character")
+                 if canonical_state_key(s.key)=="lifecycle"]
     for sc in scenes:
         if not sc.prose: continue
         prose_l=sc.prose.lower()

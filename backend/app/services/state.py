@@ -64,8 +64,13 @@ async def states_at(
     story_time: int | None = None,
     entity_type: str | None = None,
     key: str | None = None,
+    narrative_order: int | None = None,
 ) -> list[StoryState]:
-    """All effective (entity,key) states at time t — one row per entity+key."""
+    """All effective (entity,key) states at time t — one row per entity+key.
+
+    narrative_order: lọc states trích sau vị trí narrative này (kể cả khi
+    story_time trống — extractor hay để null). Hai axis độc lập: state chỉ bị
+    loại nếu TƯƠNG LAI rõ ràng trên axis đó."""
     q = select(StoryState).where(StoryState.project_id == pid)
     if entity_type:
         q = q.where(StoryState.entity_type == entity_type)
@@ -76,10 +81,17 @@ async def states_at(
     for s in rows:
         if story_time is not None and s.story_time is not None and s.story_time > story_time:
             continue
+        if (narrative_order is not None and s.narrative_order is not None
+                and s.narrative_order > narrative_order):
+            continue
         k = (s.entity_type, s.entity_id, s.key)
         cur = grouped.get(k)
         cur_t = -1 if cur is None or cur.story_time is None else cur.story_time
         s_t = -1 if s.story_time is None else s.story_time
-        if cur is None or s_t >= cur_t:
+        cur_n = -1 if cur is None or cur.narrative_order is None else cur.narrative_order
+        s_n = -1 if s.narrative_order is None else s.narrative_order
+        # ưu tiên theo narrative_order (đáng tin hơn story_time do extractor hay
+        # để trống) — tie thì theo story_time
+        if cur is None or (s_n, s_t) >= (cur_n, cur_t):
             grouped[k] = s
     return list(grouped.values())

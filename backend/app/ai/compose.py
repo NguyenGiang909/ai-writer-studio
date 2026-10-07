@@ -6,16 +6,17 @@ Keeps output bounded (~token estimate via len//4) and never mutates anything.
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, Chapter, Scene, Volume, Arc
 from app.models.story import Character, Alias
-from app.models.truth import CanonFact
+from app.models.truth import CanonFact, StoryEvent, StoryState
 from app.models.narrative import Thread
 from app.models.memory import StorySummary, AiTurn
-from app.services.constraints import build_constraints, render_constraints
+from app.services.constraints import build_constraints, render_constraints, canonical_state_key
 from app.services.memory import ancestor_chain
+from app.services.state import states_at
 
 MEMORY_TASKS = {"writing", "expand", "scene_expand", "revision", "skeleton"}
 
@@ -215,7 +216,10 @@ CHAPTER_FACTS_SYSTEM = (
     '"new_value":str,"story_time":int|null}],'
     '"thread_touches":[{"thread_title":str,"beat_type":"setup|reinforcement|'
     'escalation|payoff","note":str}],'
-    '"canon_facts":[{"subject_type":str,"predicate":str,"value_text":str}]}\n'
+    '"canon_facts":[{"subject_type":str,"predicate":str,"value_text":str}],'
+    '"recap":str}\n'
+    "recap = 2-4 câu tóm tắt chương: diễn biến chính + trạng thái sau chương "
+    "(ai đang ở đâu, việc gì vừa xảy ra) — dùng làm context cho các chương sau. "
     "entity/state chỉ trích cái THẬT SỰ thay đổi trong chương. thread_title mới = "
     "mở thread mới; khớp thread đã có = beat trên thread đó. Không suy diễn ngoài văn."
 )
@@ -252,12 +256,18 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
     pool_parts = [user_prompt or ""]
 
     # --- current scene first (most important)
+    ch = None
     if scene_id:
         sc = await db.get(Scene, scene_id)
         if sc and sc.project_id == pid:
             ch = await db.get(Chapter, sc.chapter_id)
+            arc = await db.get(Arc, ch.arc_id) if ch and ch.arc_id else None
+            n_ch = await db.scalar(select(func.count(Chapter.id)).where(
+                Chapter.project_id == pid)) or 0
+            pos = f"Chương {ch.order_index}/{n_ch} " if ch else ""
+            arc_bit = f" — Hồi \"{_clip(arc.title, 100)}\"" if arc else ""
             parts = [f"Cảnh hiện tại: \"{_clip(sc.title, 120) or '(chưa đặt tên)'}\" "
-                     f"— Chương \"{_clip(ch.title if ch else '?', 120)}\""]
+                     f"— {pos}\"{_clip(ch.title if ch else '?', 120)}\"{arc_bit}"]
             if sc.scene_type: parts.append(f"Loại cảnh: {sc.scene_type}")
             if sc.skeleton: parts.append(f"Xương cảnh (ghi chú tác giả):\n{_clip(sc.skeleton, 1500)}")
             if sc.brief_json:
@@ -269,7 +279,25 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
                 parts.append(f"Văn đã viết (đoạn cuối):\n…{tail}")
             sections.append(("\n".join(parts), 0, "scene"))
             pool_parts += [sc.title or "", sc.skeleton or "", sc.brief_json or "",
-                           (sc.prose or "")[-2000:]]
+                           (sc.prose or "")[-2000:], ch.title if ch else "",
+                           arc.title if arc else ""]
+
+            # cảnh liền trước TRONG CÙNG CHƯƠNG — neo nhân quả nội chương:
+            # cảnh sau thấy sự kiện/đồ vật cảnh trước, khỏi tự bịa lại
+            sibs = [s for s in (await db.scalars(select(Scene).where(
+                Scene.chapter_id == sc.chapter_id).order_by(Scene.order_index))).all()
+                if (s.order_index or 0) < (sc.order_index or 0)]
+            if sibs:
+                with_prose = [s for s in sibs if (s.prose or "").strip()]
+                tail_ids = {s.id for s in with_prose[-2:]}
+                lines = ["Cảnh trước trong chương (đã viết — không được mâu thuẫn):"]
+                for s in sibs:
+                    if s.id in tail_ids:
+                        lines.append(f"- \"{_clip(s.title, 80)}\": …{_clip((s.prose or '').strip()[-400:], 400)}")
+                    else:
+                        lines.append(f"- \"{_clip(s.title, 80)}\"")
+                sections.append(("\n".join(lines), 1, f"prev-scenes({len(sibs)})"))
+                pool_parts += [s.title or "" for s in sibs]
         else:
             sc = None
 
@@ -285,6 +313,47 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
 
     if proj and proj.description:
         sections.append((f"Premise truyện: {_clip(proj.description, 800)}", 2, "premise"))
+
+    # --- diễn biến ĐÃ VIẾT — neo "truyện đang ở đâu" cho task viết.
+    # Chỉ events/states/recap trước vị trí narrative của cảnh (không lộ tương lai).
+    if sc and task in {"writing", "expand", "scene_expand", "revision"}:
+        t_narr = sc.narrative_order
+        if t_narr is None and ch and ch.order_index is not None:
+            t_narr = ch.order_index
+        t_ch = ch.order_index if ch else None
+        ev_q = select(StoryEvent).where(StoryEvent.project_id == pid)
+        if t_ch is not None:
+            ev_q = ev_q.where(StoryEvent.narrative_order <= t_ch)
+        evs = list((await db.scalars(ev_q.order_by(
+            StoryEvent.narrative_order.desc(), StoryEvent.id.desc()).limit(8))).all())
+        key_sts = [s for s in await states_at(db, pid, story_time=sc.story_time,
+                                              narrative_order=t_narr)
+                   if canonical_state_key(s.key) in ("location", "lifecycle")][:6]
+        if key_sts:
+            ent_names = {c.id: c.name for c in (await db.scalars(
+                select(Character).where(Character.project_id == pid))).all()}
+            key_sts = [(ent_names.get(s.entity_id) or "?", s) for s in key_sts]
+        sum_q = select(StorySummary).where(
+            StorySummary.project_id == pid, StorySummary.scope_type == "chapter",
+            StorySummary.stale == False)  # noqa: E712
+        if t_ch is not None:
+            sum_q = sum_q.where(StorySummary.narrative_end < t_ch)
+        sums = list((await db.scalars(sum_q.order_by(
+            StorySummary.narrative_end.desc()).limit(2))).all())
+        block = []
+        if sums:
+            block.append("Tóm tắt chương trước:")
+            block += [f"- {_clip(s.summary, 400)}" for s in reversed(sums)]
+        if evs:
+            block.append("Sự kiện gần nhất:")
+            block += [f"- {_clip(e.summary, 220)}" for e in reversed(evs)]
+        if key_sts:
+            block.append("Hiện trạng đã viết:")
+            block += [f"- {name} — {s.key}: {_clip(s.value_text, 160)}"
+                      for name, s in key_sts]
+        if block:
+            sections.append(("\n".join(block), 3, "written-recap"))
+            pool_parts += [e.summary or "" for e in evs]
 
     # --- summaries of ancestor scopes (scene→chapter→arc/volume→story)
     if sc:
@@ -313,7 +382,31 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
             hits = sum(1 for n in [c.name, *alias_map.get(c.id, [])]
                        if n and n.lower() in pool)
             return hits
-        ranked = sorted(chars, key=lambda c: (-c_score(c), c.sort_order or 0, c.name or ""))[:15]
+        # pool hiện diện: prose của ≤2 chương trước — nhân vật chưa từng lộ mặt
+        # trong văn (vd pha thành phố khi đang ở pha quê) không được inject
+        # vào làm nhiễu bối cảnh
+        seen_pool = pool
+        if sc and ch and ch.order_index:
+            prev_chs = list((await db.scalars(select(Chapter.id).where(
+                Chapter.project_id == pid,
+                Chapter.order_index < ch.order_index).order_by(
+                Chapter.order_index.desc()).limit(2))).all())
+            if prev_chs:
+                prose_rows = list((await db.scalars(select(Scene.prose).where(
+                    Scene.chapter_id.in_(prev_chs)))).all())
+                seen_pool += "\n" + "\n".join(
+                    (p or "")[-4000:] for p in prose_rows).lower()
+        def appeared(c):
+            return any(n and n.lower() in seen_pool
+                       for n in [c.name, *alias_map.get(c.id, [])])
+        keep = [c for c in chars
+                if c_score(c) > 0 or appeared(c)
+                or (c.importance is not None and c.importance <= 1)]
+        if not keep:
+            keep = sorted(chars, key=lambda c: (c.importance or 9,
+                                                c.sort_order or 0))[:8]
+        ranked = sorted(keep, key=lambda c: (-c_score(c), c.sort_order or 0,
+                                             c.name or ""))[:12]
         block = "Nhân vật:\n" + "\n".join(
             f"- {c.name} ({c.role or '?'})" + (f": {_clip(c.summary, 220)}" if c.summary else "")
             for c in ranked)

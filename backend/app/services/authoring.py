@@ -27,13 +27,16 @@ from app.models import (
 from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
 from app.models.truth import StoryEvent, StoryState, CanonFact
 from app.models.narrative import Thread, ThreadBeat
-from app.models.memory import AiTurn
+from app.models.memory import AiTurn, StorySummary
 from app.ai.router import ModelRouter, ModelRequest
 from app.ai.compose import (
     build_story_prompt, WORLD_GEN_SYSTEM,
     WORLD_PLACES_SYSTEM, WORLD_RULES_SYSTEM, WORLD_LORE_SYSTEM,
     OUTLINE_SKELETON_SYSTEM, OUTLINE_ARC_SYSTEM,
 )
+from app.services.constraints import canonical_state_key
+from app.services.state import states_at
+from app.services.continuity import restricted_appearance
 
 PHASES = ["premise", "cast", "world", "outline", "writing"]
 _PHASES_ROLLING = ["premise", "cast", "world", "build"]
@@ -278,7 +281,7 @@ async def ai_call(db, run, task: str, prompt: str, system=None, scene_id=None,
         task=task, prompt=body, project_id=run.project_id,
         system=system or sys_prompt))
     db.add(AiTurn(project_id=run.project_id, scope_id=run.id, task=task,
-                  prompt_excerpt=body[:1500], reply_text=(result.text or "")[:4000],
+                  prompt_excerpt=body[:4000], reply_text=(result.text or "")[:4000],
                   provider=result.provider or "", model=result.model or ""))
     return result.text or "", result.provider or ""
 
@@ -771,12 +774,66 @@ async def h_chapter_scenes(db, run, step):
         max_o += 1
         sc = Scene(project_id=run.project_id, chapter_id=ch.id,
                    title=_clip(title.strip(), 240) or f"Cảnh {max_o + 1}",
-                   order_index=max_o, skeleton=beat.strip() or None)
+                   order_index=max_o, skeleton=beat.strip() or None,
+                   narrative_order=ch.order_index)
         db.add(sc); await db.flush(); provenance(db, run, "scene", sc.id)
         created.append(sc.title)
     run.stage_payload_json = json.dumps({"chapter": ch.order_index, "scenes": created},
                                         ensure_ascii=False)
     return {"scenes": len(created)}
+
+
+async def _post_write_issues(db, run, sc, prose: str) -> list[dict]:
+    """Check deterministic sau khi viết cảnh — flag vào step output, không chặn.
+    Bắt đúng lớp lỗi đã gặp: nhân vật bị cấm xuất hiện, và cảnh đặt nhầm
+    địa điểm (ghi 'ở làng' nhưng văn quay hẳn sang địa danh pha khác)."""
+    if not (prose or "").strip():
+        return []
+    issues: list[dict] = []
+    low = prose.lower()
+    t_narr = sc.narrative_order
+    chars = {c.id: c for c in (await db.scalars(select(Character).where(
+        Character.project_id == run.project_id))).all()}
+    aliases = list((await db.scalars(select(Alias).where(
+        Alias.project_id == run.project_id))).all())
+    def named(c) -> bool:
+        names = [c.name] + [a.alias for a in aliases
+                            if a.character_id == c.id and a.alias]
+        names += [w for w in re.split(r"\s+", c.name or "") if len(w) >= 4]
+        return any(n and n.lower() in low for n in names)
+    for st in await states_at(db, run.project_id, entity_type="character",
+                              narrative_order=t_narr):
+        if canonical_state_key(st.key) != "lifecycle":
+            continue
+        c = chars.get(st.entity_id)
+        if c and c.name and named(c):
+            iss = restricted_appearance(
+                c.name, st.value_text, sc.scene_type, st.story_time,
+                sc.story_time if sc.story_time is not None else sc.narrative_order,
+                sc.id, c.id)
+            if iss:
+                issues.append({"code": iss.code, "severity": iss.severity,
+                               "message": iss.message})
+    locs = [l for l in (await db.scalars(select(Location).where(
+        Location.project_id == run.project_id))).all() if (l.name or "").strip()]
+    for st in await states_at(db, run.project_id, entity_type="character",
+                              narrative_order=t_narr):
+        if canonical_state_key(st.key) != "location":
+            continue
+        c = chars.get(st.entity_id)
+        if not c or not c.name or not named(c):
+            continue
+        cur = (st.value_text or "").strip().lower()
+        for l in locs:
+            ln = l.name.strip().lower()
+            # văn nhắc địa danh khác + KHÔNG nhắc địa danh đang ghi → nghi lệch bối cảnh
+            if ln and ln != cur and ln in low and cur and cur not in low:
+                issues.append({"code": "LOCATION_DRIFT", "severity": "warning",
+                               "message": f"{c.name} đang được ghi ở '{st.value_text}' "
+                                          f"nhưng cảnh nhắc '{l.name}' mà không nhắc nơi ghi — "
+                                          f"kiểm tra lệch bối cảnh."})
+                break
+    return issues[:8]
 
 
 async def h_scene_write(db, run, step):
@@ -792,7 +849,8 @@ async def h_scene_write(db, run, step):
     if len(text) < 40:
         raise ValueError("prose sinh ra quá ngắn")
     sc.prose = text
-    return {"chars": len(text)}
+    issues = await _post_write_issues(db, run, sc, text)
+    return {"chars": len(text), "issues": issues}
 
 
 async def h_chapter_facts(db, run, step):
@@ -828,8 +886,10 @@ async def h_chapter_facts(db, run, step):
         ent = chars.get(ent_name) or locs.get(ent_name)
         etype = "character" if ent_name in chars else ("location" if ent_name in locs else "other")
         st = StoryState(project_id=run.project_id, entity_type=etype,
-                        entity_id=ent.id if ent else uuid.uuid4().hex,
-                        key=_clip(s_.get("field") or s_.get("key"), 120) or "state",
+                        # không khớp DB: giữ tên thô (≤36c) thay uuid rác —
+                        # relink/debug được; constraints vẫn bỏ qua vì không resolve
+                        entity_id=ent.id if ent else _clip(ent_name, 36) or uuid.uuid4().hex,
+                        key=_clip(canonical_state_key(s_.get("field") or s_.get("key")), 120) or "state",
                         value_text=_clip(s_.get("new_value") or s_.get("value"), 400) or "?",
                         story_time=s_.get("story_time"), narrative_order=narr)
         db.add(st); await db.flush(); provenance(db, run, "story_state", st.id); n += 1
@@ -857,6 +917,21 @@ async def h_chapter_facts(db, run, step):
                        truth_status="CANON",
                        source_scene_id=scenes[0].id if scenes else None)
         db.add(cf); await db.flush(); provenance(db, run, "canon_fact", cf.id); n += 1
+    # recap gộp chung call — tóm tắt chương nuôi ancestor summaries cho các
+    # cảnh/chương sau (không tốn thêm request model)
+    recap = (data.get("recap") or "").strip()
+    if recap:
+        ex = (await db.scalars(select(StorySummary).where(
+            StorySummary.project_id == run.project_id,
+            StorySummary.scope_type == "chapter",
+            StorySummary.scope_id == ch.id))).first()
+        if ex:
+            ex.summary = _clip(recap, 2000); ex.stale = False
+            ex.narrative_end = ch.order_index
+        else:
+            db.add(StorySummary(project_id=run.project_id, scope_type="chapter",
+                                scope_id=ch.id, summary=_clip(recap, 2000),
+                                narrative_end=ch.order_index))
     return {"facts": n}
 
 

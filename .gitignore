@@ -37,3 +37,6 @@ Thumbs.db
 backend/build/
 backend/dist/
 package/
+
+# agent local session config
+.cursor/

@@ -64,7 +64,7 @@ _FAKE_CHAPTER_SCENES = """Đến thư viện — Minh theo la bàn tới cửa t
 Gặp Lão Tạp — thủ thư già chặn lại, hỏi lai lịch
 Trang sách đầu — Minh đọc được mảnh ký ức đầu tiên"""
 
-_FAKE_CHAPTER_FACTS = """{"timeline_events": [{"event_type": "plot", "event": "Minh tìm thấy la bàn kỳ lạ", "story_time": 1}], "state_changes": [{"entity": "Minh", "field": "knowledge", "old_value": null, "new_value": "KNOWS_La_bàn", "story_time": 1}], "thread_touches": [{"thread_title": "Bí ẩn ký ức", "beat_type": "setup", "note": "la bàn chỉ về ký ức mất"}], "canon_facts": [{"subject_type": "story", "predicate": "exists", "value_text": "La bàn chỉ về ký ức đã mất"}]}"""
+_FAKE_CHAPTER_FACTS = """{"timeline_events": [{"event_type": "plot", "event": "Minh tìm thấy la bàn kỳ lạ", "story_time": 1}], "state_changes": [{"entity": "Minh", "field": "knowledge", "old_value": null, "new_value": "KNOWS_La_bàn", "story_time": 1}, {"entity": "Minh", "field": "nơi ở", "old_value": null, "new_value": "thư viện cổ", "story_time": 1}], "thread_touches": [{"thread_title": "Bí ẩn ký ức", "beat_type": "setup", "note": "la bàn chỉ về ký ức mất"}], "canon_facts": [{"subject_type": "story", "predicate": "exists", "value_text": "La bàn chỉ về ký ức đã mất"}], "recap": "Minh tỉnh dậy mất trí nhớ, tìm thấy la bàn kỳ lạ và lần theo nó tới thư viện cổ; ở đó cậu gặp Lão Tạp."}"""
 
 _FAKE_DEFAULT = "Đã nhận yêu cầu. (Fake provider — trả lời định dạng mẫu để test UI, chưa phải model thật.)"
 

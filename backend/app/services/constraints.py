@@ -13,6 +13,26 @@ from app.models.narrative import Thread
 from app.models.truth import KnowledgeState, CanonFact
 from app.services.state import states_at
 
+# extractor hay ghi key tự do tiếng Việt — gom về key canonical mà
+# build_constraints hiểu, để PHẢI TUÂN THỦ thực sự phát
+CANONICAL_STATE_KEYS = {
+    "location": {"location", "nơi ở", "địa điểm", "vị trí", "hiện diện",
+                 "nơi ở hiện tại", "vị trí hiện tại"},
+    "lifecycle": {"lifecycle", "sinh tử", "sống/chết", "hiện trạng sống",
+                  "trạng thái sống"},
+    "ownership": {"ownership", "sở hữu", "thuộc về", "chủ sở hữu"},
+    "status": {"status", "tình trạng", "tâm trạng"},
+}
+
+
+def canonical_state_key(key: str | None) -> str:
+    k = (key or "").strip().lower()
+    for canon, aliases in CANONICAL_STATE_KEYS.items():
+        if k == canon or k in aliases:
+            return canon
+    return (key or "state").strip()
+
+
 # lifecycle values that restrict physical presence
 _RESTRICTED = {
     "DEAD": "đã chết — chỉ được xuất hiện trong flashback/mơ/ảo giác/hồi ức",
@@ -23,19 +43,22 @@ _RESTRICTED = {
 }
 
 
-def _time_of(scene: Scene | None, chapter: Chapter | None) -> int | None:
-    if scene and scene.story_time is not None:
-        return scene.story_time
-    if scene and scene.narrative_order is not None:
-        return scene.narrative_order
-    return None
-
-
 async def build_constraints(
     db: AsyncSession, pid: str, scene: Scene | None
 ) -> dict[str, list[str]]:
     """Return {must_respect, may_use, must_not_invent} for writing `scene`."""
-    t = _time_of(scene, None)
+    # hai axis thời gian độc lập: story_time (đồng hồ trong truyện) và
+    # narrative_order (= chapter.order_index) — không trộn scale
+    t = scene.story_time if (scene and scene.story_time is not None) else None
+    # narrative position cho filter — scene.narrative_order (convention codebase:
+    # = chapter.order_index), fallback chapter.order_index cho scene cũ chưa gán
+    t_narr = None
+    if scene:
+        t_narr = scene.narrative_order
+        if t_narr is None and scene.chapter_id:
+            ch = await db.get(Chapter, scene.chapter_id)
+            if ch and ch.order_index is not None:
+                t_narr = ch.order_index
     must: list[str] = []
     may: list[str] = []
     never: list[str] = []
@@ -44,21 +67,34 @@ async def build_constraints(
         select(Character).where(Character.project_id == pid))).all()}
 
     # --- character lifecycle / location / ability / ownership states
-    for s in await states_at(db, pid, story_time=t):
-        who = names.get(s.entity_id, s.entity_id)
-        if s.key == "lifecycle":
+    # group lại theo canonical key — states_at group theo raw key nên state cũ
+    # "nơi ở" + "location" mới của cùng entity sẽ lọt cả hai → mâu thuẫn hiển thị
+    dedup: dict[tuple, object] = {}
+    for s in await states_at(db, pid, story_time=t, narrative_order=t_narr):
+        k = (s.entity_type, s.entity_id, canonical_state_key(s.key))
+        cur = dedup.get(k)
+        if cur is None or ((s.narrative_order or -1), (s.story_time or -1)) \
+                >= ((cur.narrative_order or -1), (cur.story_time or -1)):
+            dedup[k] = s
+    for s in dedup.values():
+        who = names.get(s.entity_id)
+        key = canonical_state_key(s.key)
+        if key == "lifecycle":
+            if not who: continue  # entity orphan (extractor ghi tên không khớp DB)
             v = (s.value_text or "").strip().upper()
             if v in _RESTRICTED:
                 must.append(f"{who} {_RESTRICTED[v]}")
                 never.append(f"hồi sinh/tái xuất {who} nếu không có sự kiện được duyệt")
             elif v == "ALIVE":
                 pass  # default
-        elif s.key == "location":
+        elif key == "location":
+            if not who: continue
             must.append(f"{who} đang ở {s.value_text} — cần sự kiện di chuyển để ở nơi khác")
-        elif s.key == "ownership":
+        elif key == "ownership":
             must.append(f"{s.value_text} (ownership đã ghi — không đổi chủ tự do)")
-        elif s.key.startswith("ability."):
-            ability = s.key.split(".", 1)[1]
+        elif key.startswith("ability."):
+            if not who: continue
+            ability = key.split(".", 1)[1]
             # value_text may encode "UNLOCKED"/"LOCKED"
             if (s.value_text or "").upper().startswith("LOCKED"):
                 never.append(f"{who} dùng {ability} — chưa mở khoá tại thời điểm này")
@@ -90,7 +126,7 @@ async def build_constraints(
     open_threads = list((await db.scalars(
         select(Thread).where(Thread.project_id == pid, Thread.status == "OPEN"))).all())
     for th in open_threads[:8]:
-        may.append(f"Hố '{th.title}' đang mở — có thể reinforce nếu hợp mạch")
+        may.append(f"Hố '{th.title}' đang mở — chỉ đụng tới nếu xương cảnh yêu cầu")
 
     # locked canon = absolute
     locked = list((await db.scalars(
