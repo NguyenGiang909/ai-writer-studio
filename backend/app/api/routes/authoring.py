@@ -103,6 +103,28 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
                          "chapters": len(achs)})
     cast = [r[0] for r in (await db.execute(select(Character.name).where(
         Character.project_id == pid).limit(24))).all()]
+    # resolve uuid đuôi step_key → tên entity cho nhật ký đọc được
+    ent: dict[str, str] = {}
+    tail_ids = {s.step_key.rsplit(".", 1)[-1] for s in steps
+                if len(s.step_key.rsplit(".", 1)[-1]) == 36}
+    if tail_ids:
+        ch_map = {c.id: c for c in chs}
+        arc_map = {a.id: a for a in arcs}
+        sc_rows = (await db.execute(select(
+            Scene.id, Scene.title, Scene.order_index, Scene.chapter_id)
+            .where(Scene.id.in_(tail_ids)))).all()
+        for sid, stitle, sorder, scid in sc_rows:
+            c = ch_map.get(scid)
+            pre = f"Ch{c.order_index} · " if c else ""
+            ent[sid] = f"{pre}{stitle or ('Cảnh ' + str(sorder))}"
+        for cid in tail_ids:
+            c = ch_map.get(cid)
+            if c:
+                ent[cid] = f"Ch{c.order_index} {c.title}"
+        for aid in tail_ids:
+            a = arc_map.get(aid)
+            if a:
+                ent[aid] = a.title
     counts = {"characters": len(cast),
               "locations": await db.scalar(select(func.count(Location.id)).where(Location.project_id == pid)) or 0,
               "factions": await db.scalar(select(func.count(Faction.id)).where(Faction.project_id == pid)) or 0,
@@ -123,6 +145,7 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
             "updated_at": str(run.updated_at), "live": eng.is_live(run.id),
         },
         "steps": [{"key": s.step_key, "status": s.status, "error": s.error,
+                   "name": ent.get(s.step_key.rsplit(".", 1)[-1]),
                    "at": str(s.created_at)} for s in steps],
         "phases": eng.phases_for(run),
         "context": {

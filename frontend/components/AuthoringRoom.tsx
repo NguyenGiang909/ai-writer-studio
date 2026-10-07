@@ -6,7 +6,7 @@ import { getJSON, postJSON } from "../lib/api";
 import { t, type Lang } from "../lib/i18n";
 import WriterPen, { penLabel } from "./WriterPen";
 
-type Step = { key: string; status: string; error?: string; at: string };
+type Step = { key: string; status: string; error?: string; at: string; name?: string };
 type Run = {
   id: string; phase: string; status: string; prompt: string;
   stage_payload?: any; last_error?: string; live: boolean;
@@ -48,6 +48,22 @@ const FLOW_META: Record<string, { label: string; desc: string }> = {
     label: "Toàn bộ — khung trước, viết sau",
     desc: "Dàn hết toàn bộ chương/cảnh rồi mới viết. Duyệt khung một lần trước khi viết.",
   },
+};
+
+const STEP_KIND: Record<string, string> = {
+  "premise.generate": "Tiền đề",
+  "cast.generate": "Dàn nhân vật",
+  "world.generate": "Thế giới",
+  "world.lore": "Thế giới · lore",
+  "world.rules": "Thế giới · luật",
+  "world.places": "Thế giới · địa danh",
+  "outline.generate": "Dàn ý tổng",
+  "outline.skeleton": "Khung quyển · hồi",
+  "outline.chapters": "Dàn chương",
+  "chapter_scenes": "Dàn cảnh",
+  "scene_write": "Viết cảnh",
+  "chapter_facts": "Trích diễn biến",
+  "__wave_pause__": "Dừng cuối sóng",
 };
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -363,13 +379,17 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
             <h3 style={{ marginTop: 0 }}>{t(lang, "Nhật ký bước")}</h3>
             {steps.length === 0 && <p className="muted">{t(lang, "Chưa có bước nào.")}</p>}
             <ul className="auth-steps">
-              {steps.map((s) => (
+              {steps.map((s) => {
+                const m = s.key.match(/^(.*)\.[0-9a-f-]{36}$/i);
+                const kind = m ? m[1] : s.key;
+                return (
                 <li key={s.key + s.at} className={`astep ${s.status}`}>
                   <span>{s.status === "done" ? "✓" : s.status === "failed" ? "✗" : "…"}</span>
-                  <code>{s.key}</code>
+                  <code title={s.key}>{t(lang, STEP_KIND[kind] ?? kind)}{s.name ? ` — ${s.name}` : ""}</code>
                   {s.error && <small className="muted"> — {s.error.slice(0, 80)}</small>}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         </div>
