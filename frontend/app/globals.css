@@ -389,6 +389,27 @@ html[data-theme="dark"] .read-p{color:#dedbd3}
 .wave-chip.done{color:#2f6f51;border-color:#2f6f5140}
 .wave-chip.current{color:var(--teal);border-color:var(--teal);background:#386d6512}
 .wave-chip small{opacity:.7}
+button.auth-stage{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
+button.auth-stage:hover{border-color:var(--teal)}
+.auth-caret{margin-left:auto;color:var(--muted);font-size:11px;transition:transform .15s;flex:none}
+.auth-caret.up{transform:rotate(90deg)}
+.auth-stage.open{border-color:var(--teal)}
+.phase-detail{grid-column:1/-1}
+.pd-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.pd-head .auth-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:#efe9dc;color:var(--ink);flex:none}
+.pd-body{font-size:13.5px}
+.pd-line{margin:4px 0}
+.pd-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.pd-chip{font-size:12.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--paper2,#f3f0e8)}
+.pd-stats{display:flex;flex-wrap:wrap;gap:14px}
+.pd-stat{font-size:13px;color:var(--muted)}
+.pd-stat b{color:var(--ink);font-size:16px;font-variant-numeric:tabular-nums;margin-right:3px}
+.pd-arcs{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:5px}
+.pd-arcs li{font-size:13px;display:flex;align-items:baseline;gap:7px}
+.pd-arcs li .pd-arc-ico{width:16px;flex:none;text-align:center}
+.pd-arcs li.done .pd-arc-ico{color:#2f6f51}
+.pd-arcs li.current .pd-arc-ico{color:var(--teal)}
+.pd-arcs li.todo{opacity:.65}
 .pill.live{color:var(--teal);border-color:var(--teal)}
 .pill.live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--teal);animation:pulse 1.4s ease-in-out infinite}
 .pill.ok{color:#2f6f51;border-color:#2f6f5140}
@@ -422,6 +443,8 @@ html[data-theme="dark"] .wpen-paper:before,html[data-theme="dark"] .wpen-paper:a
 @media (prefers-reduced-motion:reduce){.wpen-stage.working .wpen-pen,.wpen-stage.working .wpen-scribble path,.wpen-stage.working .wpen-dot{animation:none!important}.wpen-scribble path{stroke-dashoffset:0}}
 html[data-theme="dark"] .auth-stage{background:#3a3b3d;border-color:#515254}
 html[data-theme="dark"] .auth-stage .auth-ico{background:#4a4b4d;color:#edeae3}
+html[data-theme="dark"] .pd-head .auth-ico{background:#4a4b4d;color:#edeae3}
+html[data-theme="dark"] .pd-chip{background:#333436}
 html[data-theme="dark"] .auth-stage.active .auth-ico{background:#5d938a;color:#101415}
 html[data-theme="dark"] .auth-steps .astep,html[data-theme="dark"] .auth-payload-json{background:#2f3033;border-color:#4c4d4f;color:#d9d6cd}
 @container(max-width:880px){.authoring-grid{grid-template-columns:170px minmax(0,1fr)}.auth-log{grid-column:1/-1}}

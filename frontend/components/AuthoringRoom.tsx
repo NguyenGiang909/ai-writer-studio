@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { getJSON, postJSON } from "../lib/api";
 import { t, type Lang } from "../lib/i18n";
@@ -10,6 +10,7 @@ type Step = { key: string; status: string; error?: string; at: string; name?: st
 type Run = {
   id: string; phase: string; status: string; prompt: string;
   stage_payload?: any; last_error?: string; live: boolean;
+  display_phase?: string;
   target_chapters?: number | null; words_per_scene?: number | null;
   call_mode?: string | null; flow?: string | null;
   pause_after_wave?: boolean; wave_arc?: string | null;
@@ -115,7 +116,12 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
 
   const run = data?.run ?? null;
   const steps = data?.steps ?? [];
-  const phaseIdx = run ? (data?.phases ?? []).indexOf(run.phase) : -1;
+  // rolling: phase lưu là "build" gộp — hiển thị tách outline/writing theo display_phase
+  const dispPhase = run ? (run.display_phase ?? run.phase) : "";
+  const phaseIdx = run ? (data?.phases ?? []).indexOf(dispPhase) : -1;
+  const arcs = data?.context?.arcs ?? [];
+  const curWave = arcs.findIndex((a) => a.state === "current");
+  const [openPh, setOpenPh] = useState<string | null>(null);
 
   return (
     <div className="dashboard" style={{ maxWidth: 1100 }}>
@@ -217,19 +223,30 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 run.status === "complete" || i < phaseIdx ? "done"
                 : i === phaseIdx ? (run.status === "awaiting_review" ? "review" : "active")
                 : "todo";
+              const open = openPh === ph;
               return (
-                <div key={ph} className={`auth-stage ${state}`}>
+                <button
+                  key={ph}
+                  type="button"
+                  className={`auth-stage ${state}${open ? " open" : ""}`}
+                  onClick={() => setOpenPh(open ? null : ph)}
+                  aria-expanded={open}
+                  title={t(lang, "Bấm để xem nội dung")}
+                >
                   <span className="auth-ico">{meta.icon}</span>
                   <div>
                     <b>{t(lang, meta.label)}</b>
                     <small>
                       {state === "done" && t(lang, "xong")}
-                      {state === "active" && t(lang, "đang chạy")}
+                      {state === "active" && t(lang,
+                        run.status === "paused" ? "tạm dừng" :
+                        run.status === "failed" ? "lỗi" : "đang chạy")}
                       {state === "review" && t(lang, "chờ duyệt")}
                       {state === "todo" && t(lang, "chưa tới")}
                     </small>
                   </div>
-                </div>
+                  <span className={`auth-caret${open ? " up" : ""}`} aria-hidden>▸</span>
+                </button>
               );
             })}
           </div>
@@ -242,7 +259,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
             />
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <h2 style={{ margin: 0, whiteSpace: "nowrap" }}>
-                {t(lang, (PHASE_META[run.phase]?.label ?? run.phase))}
+                {t(lang, (PHASE_META[dispPhase]?.label ?? dispPhase))}
               </h2>
               <span className={`pill ${STATUS_META[run.status]?.cls ?? ""}`}>
                 {t(lang, STATUS_META[run.status]?.label ?? run.status)}
@@ -274,6 +291,14 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 {run.flow === "rolling" ? t(lang, "Theo sóng") : t(lang, "Toàn bộ")}
                 {" · "}
                 {run.call_mode === "fast" ? t(lang, "Nhanh") : t(lang, "An toàn")}
+                {run.flow === "rolling" && arcs.length > 0 && curWave >= 0 && (
+                  <>
+                    {" · "}
+                    <b style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>
+                      {t(lang, "Hồi")} {curWave + 1}/{arcs.length}
+                    </b>
+                  </>
+                )}
               </small>
             </div>
             {run.phase === "build" && (data?.context?.arcs?.length ?? 0) > 0 && (
@@ -392,8 +417,122 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               })}
             </ul>
           </div>
+
+          {/* panel nội dung stage đang mở — full width dưới 3 cột */}
+          {openPh && (
+            <section className="card phase-detail" style={{ margin: 0 }}>
+              <PhaseDetail
+                ph={openPh}
+                ctx={data?.context}
+                run={run}
+                steps={steps}
+                lang={lang}
+                projectId={projectId}
+              />
+            </section>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/** Nội dung thật của từng stage — chỉ đọc, không chỉnh sửa ở đây */
+function PhaseDetail({ ph, ctx, run, steps, lang, projectId }: {
+  ph: string; ctx?: Ctx; run: Run; steps: Step[]; lang: Lang; projectId: string;
+}) {
+  const meta = PHASE_META[ph] ?? { icon: "•", label: ph };
+  const link = PHASE_LINKS[ph];
+  const counts = ctx?.counts ?? {};
+  const linkEl = link ? (
+    <Link href={`/projects/${projectId}${link.href}`} className="btn" style={{ fontSize: 12, textDecoration: "none" }}>
+      {t(lang, link.label)} →
+    </Link>
+  ) : null;
+
+  let body: ReactNode = null;
+  if (ph === "premise") {
+    const p = ctx?.premise ?? {};
+    body = p.title || p.logline || p.premise ? (
+      <>
+        {p.title && <p className="pd-line"><b>{t(lang, "Tên truyện")}:</b> {p.title}</p>}
+        {p.logline && <p className="pd-line"><i>{p.logline}</i></p>}
+        {p.premise && <p className="pd-line">{p.premise}</p>}
+        {(p.genre || p.tone || p.themes) && (
+          <p className="pd-line muted">
+            {[p.genre && `${t(lang, "Thể loại")}: ${p.genre}`, p.tone && `Tone: ${p.tone}`,
+              p.themes && `${t(lang, "Chủ đề")}: ${Array.isArray(p.themes) ? p.themes.join(", ") : p.themes}`]
+              .filter(Boolean).join(" · ")}
+          </p>
+        )}
+      </>
+    ) : <p className="muted">{t(lang, "Chưa có — bước Tiền đề sẽ sinh tựa đề, logline và premise.")}</p>;
+  } else if (ph === "cast") {
+    const names = ctx?.cast ?? [];
+    body = names.length > 0 ? (
+      <>
+        <p className="pd-line muted">{names.length} {t(lang, "nhân vật")}</p>
+        <div className="pd-chips">{names.map((n) => <span key={n} className="pd-chip">{n}</span>)}</div>
+      </>
+    ) : <p className="muted">{t(lang, "Chưa có nhân vật — bước Nhân vật sẽ dàn dàn diễn viên.")}</p>;
+  } else if (ph === "world") {
+    const rows: [string, number][] = [
+      [t(lang, "địa danh"), counts.locations ?? 0],
+      [t(lang, "phe"), counts.factions ?? 0],
+      [t(lang, "vật"), counts.items ?? 0],
+      [t(lang, "năng lực"), counts.abilities ?? 0],
+    ];
+    body = rows.some(([, n]) => n > 0) ? (
+      <div className="pd-stats">
+        {rows.map(([label, n]) => (
+          <span key={label} className="pd-stat"><b>{n}</b> {label}</span>
+        ))}
+      </div>
+    ) : <p className="muted">{t(lang, "Chưa có thế giới — bước Thế giới sẽ tạo lore, luật và địa danh.")}</p>;
+  } else if (ph === "outline" || ph === "build") {
+    const arcs = ctx?.arcs ?? [];
+    body = arcs.length > 0 ? (
+      <>
+        <p className="pd-line muted">
+          {counts.chapters ?? 0} {t(lang, "chương")} · {counts.scenes ?? 0} {t(lang, "cảnh")}
+          {" · "}{arcs.length} {t(lang, "hồi")}
+        </p>
+        <ul className="pd-arcs">
+          {arcs.map((a) => (
+            <li key={a.id} className={a.state}>
+              <span className="pd-arc-ico">{a.state === "done" ? "✓" : a.state === "current" ? "▶" : "○"}</span>
+              {a.title}
+              {a.chapters > 0 && <small className="muted"> · {a.chapters} {t(lang, "chương")}</small>}
+            </li>
+          ))}
+        </ul>
+      </>
+    ) : <p className="muted">{t(lang, "Chưa có dàn ý — bước Dàn ý sẽ dựng hồi, chương và cảnh.")}</p>;
+  } else if (ph === "writing") {
+    const lastWritten = steps.find((s) => s.status === "done" && s.key.startsWith("scene_write"));
+    body = (counts.with_prose ?? 0) > 0 ? (
+      <>
+        <p className="pd-line">
+          <b style={{ fontVariantNumeric: "tabular-nums" }}>{counts.with_prose}/{counts.scenes}</b>{" "}
+          {t(lang, "cảnh có văn")}
+          {run.target_chapters ? ` · ${t(lang, "mục tiêu ~")}${run.target_chapters} ${t(lang, "chương")}` : ""}
+        </p>
+        {lastWritten?.name && (
+          <p className="pd-line muted">{t(lang, "Vừa viết xong")}: {lastWritten.name}</p>
+        )}
+      </>
+    ) : <p className="muted">{t(lang, "Chưa có văn — đến lượt, bước Viết văn sẽ viết từng cảnh theo dàn ý.")}</p>;
+  }
+
+  return (
+    <>
+      <div className="pd-head">
+        <span className="auth-ico">{meta.icon}</span>
+        <h3 style={{ margin: 0 }}>{t(lang, meta.label)}</h3>
+        <span style={{ flex: 1 }} />
+        {linkEl}
+      </div>
+      <div className="pd-body">{body}</div>
+    </>
   );
 }

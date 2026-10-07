@@ -131,9 +131,19 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
               "items": await db.scalar(select(func.count(Item.id)).where(Item.project_id == pid)) or 0,
               "abilities": await db.scalar(select(func.count(Ability.id)).where(Ability.project_id == pid)) or 0,
               "chapters": len(chs), "scenes": n_scenes or 0, "with_prose": n_prose or 0}
+    # rolling: phase lưu là "build" gộp — phase HIỂN THỊ tách theo step mới nhất:
+    # đang dàn (skeleton/chương/cảnh) → "outline"; đang viết/trích → "writing".
+    # Viết hết dàn ý → engine tự quay lại outline hồi sau → stage lại sáng "Dàn ý".
+    display = run.phase
+    if run.flow == "rolling" and run.phase == "build":
+        newest = steps[0].step_key if steps else ""
+        display = "writing" if newest.split(".")[0] in ("scene_write", "chapter_facts") else "outline"
+    display_phases = (["premise", "cast", "world", "outline", "writing"]
+                      if run.flow == "rolling" else eng.phases_for(run))
     return {
         "run": {
             "id": run.id, "phase": run.phase, "status": run.status,
+            "display_phase": display,
             "prompt": run.prompt, "stage_payload": payload,
             "target_chapters": run.target_chapters,
             "words_per_scene": run.words_per_scene,
@@ -147,10 +157,10 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
         "steps": [{"key": s.step_key, "status": s.status, "error": s.error,
                    "name": ent.get(s.step_key.rsplit(".", 1)[-1]),
                    "at": str(s.created_at)} for s in steps],
-        "phases": eng.phases_for(run),
+        "phases": display_phases,
         "context": {
             "premise": {k: ctx.get(k) for k in
-                        ("title", "logline", "genre", "tone") if ctx.get(k)},
+                        ("title", "logline", "premise", "genre", "tone", "themes") if ctx.get(k)},
             "skeleton": ctx.get("skeleton"),
             "arcs": arc_list,
             "cast": cast, "counts": counts,
