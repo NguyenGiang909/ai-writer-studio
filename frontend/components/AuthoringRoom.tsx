@@ -217,10 +217,12 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               label={penLabel(run, steps.find((s) => s.status === "running")?.key, lang)}
             />
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <h2 style={{ margin: 0, flex: 1 }}>
+              <h2 style={{ margin: 0, whiteSpace: "nowrap" }}>
                 {t(lang, (PHASE_META[run.phase]?.label ?? run.phase))}
-                <span className={`pill ${run.status}`} style={{ marginLeft: 10 }}>{run.status}</span>
               </h2>
+              <span className={`pill ${run.status}`}>{run.status}</span>
+            </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
               {(run.progress?.scenes ?? 0) > 0 && (
                 <small style={{ color: "var(--muted)" }}>
                   {run.progress!.with_prose}/{run.progress!.scenes} {t(lang, "cảnh có văn")}
