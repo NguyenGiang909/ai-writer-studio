@@ -1,8 +1,47 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getJSON, patchJSON, postJSON } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
+
+function mdTable(lines: string[], start: number) {
+  const isRow = (l?: string) => !!l && l.trim().startsWith("|");
+  const isSep = (l?: string) => !!l && l.includes("-") && /^\s*\|?[\s:|-]+\|?\s*$/.test(l);
+  if (!isRow(lines[start]) || !isSep(lines[start + 1])) return null;
+  const parse = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const head = parse(lines[start]);
+  const rows: string[][] = [];
+  let i = start + 2;
+  while (i < lines.length && isRow(lines[i])) { rows.push(parse(lines[i])); i++; }
+  return { head, rows, next: i };
+}
+
+function renderContent(content: string) {
+  const lines = content.split("\n");
+  const out: React.ReactNode[] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (buf.length) { out.push(<span key={`t${out.length}`}>{buf.join("\n")}</span>); buf = []; }
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const tb = mdTable(lines, i);
+    if (tb) {
+      flush();
+      out.push(
+        <table key={`m${i}`} className="chat-md-table">
+          <thead><tr>{tb.head.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
+          <tbody>
+            {tb.rows.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}
+          </tbody>
+        </table>
+      );
+      i = tb.next;
+    } else { buf.push(lines[i]); i++; }
+  }
+  flush();
+  return <>{out}</>;
+}
 
 function toast(msg: string) {
   const t = document.getElementById("toast");
@@ -108,7 +147,7 @@ export default function ChatThread({
         {(msgs ?? []).map((m) => (
           <div key={m.id} className={`chat-msg ${m.author === "ai" ? "ai" : "me"}`}>
             {m.pinned && <span className="pin-mark">📌 </span>}
-            {m.content}
+            {renderContent(m.content)}
             <span className="chat-actions">
               <button
                 type="button"

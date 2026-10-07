@@ -43,7 +43,7 @@ export default function ActionButton({
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <button onClick={run} disabled={busy} className={`btn${gold ? " gold" : ""}`} style={{ padding: "4px 12px", fontSize: 12 }}>
+      <button onClick={run} disabled={busy} className={`btn${gold ? " gold" : ""}${method === "delete" ? " danger" : ""}`} style={{ padding: "4px 12px", fontSize: 12 }}>
         {busy ? "…" : label}
       </button>
       {error && <span className="err">{error}</span>}
