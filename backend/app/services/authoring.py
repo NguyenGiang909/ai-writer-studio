@@ -220,11 +220,15 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
                         if not c.arc_id and _ch_step(f, c) is not None), None)
             return _ch_step(f, och) if och else None
         if cur != target.id:
-            if run.pause_after_wave and cur:
-                # sentinel — tick đổi thành checkpoint + cờ 1 lần xoá tại đó
-                # (build là phase cuối nên return None = complete, không phải pause)
+            want_pause = run.pause_after_wave \
+                or getattr(run, "goal_mode", "end") == "waves"
+            if want_pause and cur and ctx.get("wave_paused_for") != target.id:
+                # sentinel — tick đổi thành checkpoint + ghi wave_paused_for để
+                # không bắn lại đúng ranh giới này sau approve. pause_after_wave
+                # là cờ 1-lần; goal_mode=waves là mode bền → dừng sau MỖI hồi
+                # ("viết theo tiến độ" — tác giả duyệt/đặt hướng hồi sau)
                 return Step("__wave_pause__", "noop",
-                            "Dừng ở ranh giới sóng theo yêu cầu")
+                            "Dừng ở ranh giới sóng theo yêu cầu", target.id)
             ctx["wave_arc"] = target.id
             run.cursor_json = json.dumps(ctx, ensure_ascii=False)
         return _arc_step(run, f, target)
@@ -701,6 +705,8 @@ async def h_arc_chapters(db, run, step):
     skeleton = ctx.get("skeleton") or {}
     arc_meta = next((a for v in (skeleton.get("volumes") or [])
                      for a in (v.get("arcs") or []) if a.get("_arc_id") == arc.id), {})
+    # goal tác giả đặt dần ở checkpoint sóng (goal_mode=waves) — dùng 1 lần rồi xoá
+    wave_hint = ctx.pop("wave_hint", None)
     chars = await _cast_names(db, run)
     existing = [c.title for c in (await db.scalars(select(Chapter).where(
         Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all()]
@@ -717,6 +723,7 @@ async def h_arc_chapters(db, run, step):
               + f"\n\n=== HỒI CẦN DÀN ===\n{arc.title}"
               + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get("goal") else "")
               + (f" — ~{want} chương" if want else "")
+              + (f"\n\n=== ĐỊNH HƯỚNG TÁC GIẢ CHO HỒI NÀY ===\n{wave_hint}" if wave_hint else "")
               + "\n\nDàn chương cho hồi này theo schema.")
     text, _ = await ai_call(db, run, "arc_chapters", prompt,
                             system=OUTLINE_ARC_SYSTEM)
@@ -886,8 +893,13 @@ async def tick(run_id: str) -> str:
         facts = await load_facts(db, run)
         step = next_step(run, facts)
         if step is not None and step.key == "__wave_pause__":
-            # cờ 1-lần pause_after_wave vừa bắn — checkpoint để tác giả chen vào
+            # cờ 1-lần pause_after_wave vừa bắn — checkpoint để tác giả chen vào.
+            # wave_paused_for = hồi SẮP sang — approve xong tick lại sẽ thấy ranh
+            # giới này đã checkpoint rồi, không bắn lặp (goal_mode=waves)
             run.pause_after_wave = False
+            ctx = _premise_ctx(run)
+            ctx["wave_paused_for"] = step.ref_id
+            run.cursor_json = json.dumps(ctx, ensure_ascii=False)
             run.status = "awaiting_review"
             await db.commit()
             return "checkpoint"
@@ -1049,6 +1061,9 @@ async def _regen_wave(db, run, hint):
         await db.execute(delete(AuthoringStep).where(
             AuthoringStep.run_id == run.id, AuthoringStep.step_key.in_(keys)))
     ctx["wave_arc"] = arc_id
+    # regen = chưa chấp nhận ranh giới sóng này → re-arm checkpoint (waves mode
+    # sẽ dừng lại sau khi hồi dựng lại xong)
+    ctx.pop("wave_paused_for", None)
     if hint:
         ctx["author_hint"] = hint
     run.cursor_json = json.dumps(ctx, ensure_ascii=False)

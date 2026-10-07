@@ -28,6 +28,8 @@ class AuthoringRun(Base):
     flow: Mapped[str] = mapped_column(String(16), default="rolling")
     # cờ 1-lần: hồi đang chạy xong thì dừng checkpoint thay vì sang hồi kế
     pause_after_wave: Mapped[bool] = mapped_column(Boolean, default=False)
+    # end = viết hết (chạy liền); waves = theo tiến độ (dừng sau mỗi hồi chờ goal)
+    goal_mode: Mapped[str] = mapped_column(String(16), default="end")
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

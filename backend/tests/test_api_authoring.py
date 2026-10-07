@@ -1,3 +1,4 @@
+import json
 import pytest, pytest_asyncio
 import app.services.authoring as eng
 from app.db.session import SessionLocal
@@ -799,3 +800,82 @@ async def test_regen_wave_only_deletes_current_arc(client):
     async with SessionLocal() as db:
         assert (await db.scalars(select(Chapter).where(
             Chapter.arc_id == a2))).all()                        # hồi 2 dựng lại
+
+
+# ---------- goal_mode: viết hết / theo tiến độ ----------
+
+@pytest.mark.asyncio
+async def test_goal_mode_waves_stops_each_wave(client):
+    """goal_mode=waves: dừng checkpoint sau MỖI hồi (không cần đặt cờ);
+    approve kèm hint → hồi sau nhận 'ĐỊNH HƯỚNG TÁC GIẢ' trong prompt."""
+    from app.models import AiTurn
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        a1, a2, a3 = await _seed_ready_for_build(db, pid, 3)
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                          json={"goal_mode": "waves"})
+    assert r.status_code == 200
+    st = (await _status(client, pid))["run"]
+    run_id = st["id"]
+    assert st["goal_mode"] == "waves" and st["flow"] == "rolling"
+
+    # sóng 1 xong → checkpoint tự động (không ai đặt cờ pause_after_wave)
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review" and cur["phase"] == "build"
+    assert cur["wave_arc"] == a1
+    assert cur["pause_after_wave"] is False  # không phải cờ 1-lần
+
+    # approve KÈM hint → wave_hint nằm trong cursor trước khi hồi 2 dàn
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve",
+                       json={"hint": "hồi sau tập trung Hạnh"})).raise_for_status()
+    async with SessionLocal() as db:
+        run = await db.get(AuthoringRun, run_id)
+        assert json.loads(run.cursor_json).get("wave_hint") == "hồi sau tập trung Hạnh"
+
+    # sóng 2 chạy → h_arc_chapters tiêu thụ wave_hint vào prompt
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review" and cur["wave_arc"] == a2  # dừng lại sau hồi 2
+    async with SessionLocal() as db:
+        run = await db.get(AuthoringRun, run_id)
+        assert "wave_hint" not in json.loads(run.cursor_json)  # đã tiêu thụ
+        turns = [t for t in (await db.scalars(select(AiTurn).where(
+            AiTurn.project_id == pid, AiTurn.task == "arc_chapters"))).all()]
+        assert any("hồi sau tập trung Hạnh" in (t.prompt_excerpt or "") for t in turns)
+
+    # approve trần → hồi 3 (cuối) chạy xong → complete hẳn
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve",
+                       json={})).raise_for_status()
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_goal_mode_end_no_wave_stop_and_validation(client):
+    """goal_mode=end (mặc định): không dừng ranh giới sóng; giá trị lạ → 422."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        await _seed_ready_for_build(db, pid, 2)
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                          json={"goal_mode": "weird"})
+    assert r.status_code == 422
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    assert st["goal_mode"] == "end"
+    r = "step"
+    while r == "step":
+        r = await eng.tick(st["id"])
+    # không checkpoint ranh giới sóng nào — đi thẳng complete
+    assert (await _status(client, pid))["run"]["status"] == "complete"
+

@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models import Project
 from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
-from app.schemas.extras import AuthoringStartRequest, AuthoringRegenerateRequest
+from app.schemas.extras import (AuthoringStartRequest, AuthoringRegenerateRequest,
+                                AuthoringApproveRequest)
 from app.services import authoring as eng
 
 router = APIRouter()
@@ -45,7 +46,8 @@ async def start(pid: str, p: AuthoringStartRequest, db: AsyncSession = Depends(g
                        target_chapters=p.target_chapters,
                        words_per_scene=p.words_per_scene,
                        call_mode=p.call_mode or "safe",
-                       flow=p.flow or "rolling")
+                       flow=p.flow or "rolling",
+                       goal_mode=p.goal_mode or "end")
     db.add(run)
     await db.commit()
     await db.refresh(run)
@@ -149,6 +151,7 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
             "words_per_scene": run.words_per_scene,
             "call_mode": run.call_mode,
             "flow": run.flow, "pause_after_wave": run.pause_after_wave,
+            "goal_mode": getattr(run, "goal_mode", "end"),
             "wave_arc": wave,
             "progress": {"scenes": n_scenes or 0, "with_prose": n_prose or 0},
             "last_error": run.last_error, "created_at": str(run.created_at),
@@ -169,7 +172,8 @@ async def status(pid: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/projects/{pid}/authoring/approve")
-async def approve(pid: str, db: AsyncSession = Depends(get_db)):
+async def approve(pid: str, p: AuthoringApproveRequest | None = None,
+                  db: AsyncSession = Depends(get_db)):
     run = await _latest_run(db, pid)
     if not run:
         raise HTTPException(404, "chưa có run")
@@ -180,6 +184,12 @@ async def approve(pid: str, db: AsyncSession = Depends(get_db)):
     if run.phase == "build":
         # build là phase cuối của rolling nhưng checkpoint sóng có thể còn hồi
         # chưa dựng → chạy tiếp cùng phase, tick tự complete khi hết việc
+        # hint (tuỳ chọn) = goal cho hồi kế — h_arc_chapters đọc rồi xoá
+        hint = (p.hint or "").strip() if p else ""
+        if hint:
+            ctx = eng._premise_ctx(run)
+            ctx["wave_hint"] = hint[:2000]
+            run.cursor_json = json.dumps(ctx, ensure_ascii=False)
         run.status = "running"
         run.stage_payload_json = None
     elif idx >= len(phs) - 1:

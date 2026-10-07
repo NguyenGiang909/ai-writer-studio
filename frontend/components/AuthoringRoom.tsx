@@ -13,6 +13,7 @@ type Run = {
   display_phase?: string;
   target_chapters?: number | null; words_per_scene?: number | null;
   call_mode?: string | null; flow?: string | null;
+  goal_mode?: string | null;
   pause_after_wave?: boolean; wave_arc?: string | null;
   progress?: { scenes: number; with_prose: number };
 };
@@ -38,6 +39,17 @@ const PHASE_LINKS: Record<string, { href: string; label: string }> = {
   outline: { href: "", label: "Mở Bản thảo" },
   build: { href: "", label: "Mở Bản thảo" },
   writing: { href: "", label: "Mở Bản thảo" },
+};
+
+export const GOAL_META: Record<string, { label: string; desc: string }> = {
+  end: {
+    label: "Viết hết — chạy liền tới đích",
+    desc: "AI chạy liên tục: hết hồi này sang hồi sau cho tới khi đạt mục tiêu hoặc hết khung. Muốn canh điểm dừng vẫn có nút “Dừng sau hồi này”.",
+  },
+  waves: {
+    label: "Theo tiến độ — xong mỗi hồi thì dừng",
+    desc: "Sau mỗi hồi viết xong, AI dừng chờ: bạn xem hồi vừa viết, có thể ghi định hướng cho hồi sau rồi Duyệt để AI dàn tiếp — goal đặt dần theo ý bạn.",
+  },
 };
 
 export const FLOW_META: Record<string, { label: string; desc: string }> = {
@@ -83,6 +95,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
   const [wordsScene, setWordsScene] = useState("900");
   const [callMode, setCallMode] = useState("safe");
   const [flow, setFlow] = useState("rolling");
+  const [goalMode, setGoalMode] = useState("end");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -171,10 +184,22 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               />
             </div>
             <div className="field" style={{ flex: 1, margin: 0 }}>
+              <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Kiểu mục tiêu")}</label>
+              <select
+                value={goalMode}
+                onChange={(e) => setGoalMode(e.target.value)}
+                style={{ width: "100%" }}
+              >
+                <option value="end">{t(lang, GOAL_META.end.label)}</option>
+                <option value="waves">{t(lang, GOAL_META.waves.label)}</option>
+              </select>
+            </div>
+            <div className="field" style={{ flex: 1, margin: 0 }}>
               <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Cách chạy")}</label>
               <select
-                value={flow}
+                value={goalMode === "waves" ? "rolling" : flow}
                 onChange={(e) => setFlow(e.target.value)}
+                disabled={goalMode === "waves"}
                 style={{ width: "100%" }}
               >
                 <option value="rolling">{t(lang, FLOW_META.rolling.label)}</option>
@@ -194,7 +219,8 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
             </div>
           </div>
           <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>
-            {t(lang, FLOW_META[flow]?.desc ?? "")}
+            {t(lang, GOAL_META[goalMode]?.desc ?? "")}
+            {goalMode === "end" && <> {t(lang, FLOW_META[flow]?.desc ?? "")}</>}
           </p>
           {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
           <button
@@ -205,7 +231,8 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               target_chapters: targetCh.trim() ? parseInt(targetCh, 10) : undefined,
               words_per_scene: wordsScene.trim() ? parseInt(wordsScene, 10) : undefined,
               call_mode: callMode,
-              flow: flow,
+              flow: goalMode === "waves" ? "rolling" : flow,
+              goal_mode: goalMode,
             })}
           >
             {busy ? t(lang, "Đang khởi động…") : t(lang, "Bắt đầu tạo truyện")}
@@ -291,6 +318,12 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 {run.flow === "rolling" ? t(lang, "Theo sóng") : t(lang, "Toàn bộ")}
                 {" · "}
                 {run.call_mode === "fast" ? t(lang, "Nhanh") : t(lang, "An toàn")}
+                {run.flow === "rolling" && (
+                  <>
+                    {" · "}
+                    {run.goal_mode === "waves" ? t(lang, "theo tiến độ") : t(lang, "viết hết")}
+                  </>
+                )}
                 {run.flow === "rolling" && arcs.length > 0 && curWave >= 0 && (
                   <>
                     {" · "}
@@ -326,7 +359,15 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               <pre className="auth-payload-json">{JSON.stringify(run.stage_payload, null, 2)}</pre>
             )}
 
-            {run.status === "awaiting_review" && (
+            {run.status === "awaiting_review" && run.phase === "build" ? (
+              <div className="notice" style={{ marginTop: 12 }}>
+                {run.goal_mode === "waves"
+                  ? t(lang, "Hồi vừa viết xong — xem lại rồi bấm Duyệt để AI dàn hồi tiếp theo. Ô gợi ý dưới có thể mang định hướng cho hồi sau.")
+                  : t(lang, "Hồi đã viết xong theo yêu cầu dừng — duyệt để AI tiếp tục hồi tiếp theo.")}
+                {" "}
+                <Link href={`/projects/${projectId}`}>{t(lang, "Mở Bản thảo")} →</Link>
+              </div>
+            ) : run.status === "awaiting_review" && (
               <div className="notice" style={{ marginTop: 12 }}>
                 {t(lang, "Giai đoạn này đã xong — kiểm tra kết quả (có thể sửa trực tiếp ở trang tương ứng), rồi duyệt để tiếp tục.")}
                 {PHASE_LINKS[run.phase] && (
@@ -345,7 +386,10 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 <input
                   value={hint}
                   onChange={(e) => setHint(e.target.value)}
-                  placeholder={t(lang, "Gợi ý chỉnh cho lần tạo lại (tuỳ chọn)…")}
+                  placeholder={t(lang,
+                    run.phase === "build"
+                      ? "Định hướng cho hồi sau (tuỳ chọn)…"
+                      : "Gợi ý chỉnh cho lần tạo lại (tuỳ chọn)…")}
                   style={{ width: "100%" }}
                 />
               </div>
@@ -353,7 +397,16 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
 
             <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
               {run.status === "awaiting_review" && (
-                <button className="btn primary" disabled={busy} onClick={() => act("approve")}>
+                <button
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => {
+                    // checkpoint sóng: ô gợi ý trở thành goal cho hồi kế
+                    act("approve", run.phase === "build"
+                      ? { hint: hint.trim() || undefined } : undefined);
+                    setHint("");
+                  }}
+                >
                   {t(lang, "Duyệt & tiếp tục")}
                 </button>
               )}
@@ -376,7 +429,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                   {t(lang, "Tạm dừng")}
                 </button>
               )}
-              {run.status === "running" && run.phase === "build" && (
+              {run.status === "running" && run.phase === "build" && run.goal_mode !== "waves" && (
                 <button
                   className={`btn${run.pause_after_wave ? " primary" : ""}`}
                   disabled={busy}

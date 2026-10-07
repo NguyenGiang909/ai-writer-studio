@@ -113,5 +113,11 @@ class AuthoringStartRequest(BaseModel):
     # rolling = sóng theo hồi, hồi sau học văn đã viết (mặc định cho run mới);
     # batch = lên toàn bộ khung trước rồi viết
     flow:str|None=Field(default="rolling",pattern="^(batch|rolling)$")
+    # end = viết hết: chạy liền tới mục tiêu/hết sóng (mặc định);
+    # waves = theo tiến độ: dừng checkpoint sau MỖI hồi để tác giả đặt goal dần
+    goal_mode:str|None=Field(default="end",pattern="^(end|waves)$")
 class AuthoringRegenerateRequest(BaseModel):
+    hint:str|None=Field(default=None,max_length=2000)
+class AuthoringApproveRequest(BaseModel):
+    # định hướng cho HỒI SAU (rolling + goal_mode=waves) — "tạo goal dần"
     hint:str|None=Field(default=None,max_length=2000)

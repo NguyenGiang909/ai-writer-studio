@@ -577,6 +577,20 @@ const EN: Record<string, string> = {
   "Chưa có thế giới — bước Thế giới sẽ tạo lore, luật và địa danh.": "No world yet — the World step will create lore, rules and locations.",
   "Chưa có dàn ý — bước Dàn ý sẽ dựng hồi, chương và cảnh.": "No outline yet — the Outline step will build arcs, chapters and scenes.",
   "Chưa có văn — đến lượt, bước Viết văn sẽ viết từng cảnh theo dàn ý.": "No prose yet — when it's time, the Writing step writes each scene from the outline.",
+  "Kiểu mục tiêu": "Goal mode",
+  "Viết hết — chạy liền tới đích": "Write-to-end — runs straight to the goal",
+  "Theo tiến độ — xong mỗi hồi thì dừng": "By progress — stops after each arc",
+  "AI chạy liên tục: hết hồi này sang hồi sau cho tới khi đạt mục tiêu hoặc hết khung. Muốn canh điểm dừng vẫn có nút “Dừng sau hồi này”.":
+    "AI runs continuously: arc after arc until it hits the goal or exhausts the outline. “Stop after this arc” is still available.",
+  "Sau mỗi hồi viết xong, AI dừng chờ: bạn xem hồi vừa viết, có thể ghi định hướng cho hồi sau rồi Duyệt để AI dàn tiếp — goal đặt dần theo ý bạn.":
+    "After each arc is written, AI pauses: you review it, optionally note a direction for the next arc, then Approve — goals are set step by step.",
+  "theo tiến độ": "by progress",
+  "viết hết": "write-to-end",
+  "Hồi vừa viết xong — xem lại rồi bấm Duyệt để AI dàn hồi tiếp theo. Ô gợi ý dưới có thể mang định hướng cho hồi sau.":
+    "Arc finished — review it, then Approve so AI outlines the next arc. The hint box below can carry a direction for that arc.",
+  "Hồi đã viết xong theo yêu cầu dừng — duyệt để AI tiếp tục hồi tiếp theo.":
+    "Arc finished as requested — approve to let AI continue to the next arc.",
+  "Định hướng cho hồi sau (tuỳ chọn)…": "Direction for the next arc (optional)…",
   "Loại cảnh": "Scene type",
   "Chỉ dẫn": "Instructions",
   " · tắt": " · off",

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { postJSON } from "../lib/api";
 import { t, type Lang } from "../lib/i18n";
-import { FLOW_META } from "./AuthoringRoom";
+import { FLOW_META, GOAL_META } from "./AuthoringRoom";
 
 export default function AiAuthoringStart({ lang }: { lang: Lang }) {
   const [open, setOpen] = useState(false);
@@ -13,6 +13,7 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
   const [targetCh, setTargetCh] = useState("");
   const [wordsScene, setWordsScene] = useState("900");
   const [flow, setFlow] = useState("rolling");
+  const [goalMode, setGoalMode] = useState("end");
   const [callMode, setCallMode] = useState("safe");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -27,7 +28,9 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
         target_chapters: targetCh.trim() ? parseInt(targetCh, 10) : undefined,
         words_per_scene: wordsScene.trim() ? parseInt(wordsScene, 10) : undefined,
         call_mode: callMode,
-        flow,
+        // theo tiến độ bắt buộc rolling — mỗi hồi là một chặp dừng
+        flow: goalMode === "waves" ? "rolling" : flow,
+        goal_mode: goalMode,
       });
       router.push(`/projects/${proj.id}/authoring`);
     } catch (e: any) {
@@ -59,6 +62,13 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
               />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="field" style={{ margin: 0, gridColumn: "1/-1" }}>
+                <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Kiểu mục tiêu")}</label>
+                <select value={goalMode} onChange={(e) => setGoalMode(e.target.value)} style={{ width: "100%" }}>
+                  <option value="end">{t(lang, GOAL_META.end.label)}</option>
+                  <option value="waves">{t(lang, GOAL_META.waves.label)}</option>
+                </select>
+              </div>
               <div className="field" style={{ margin: 0 }}>
                 <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Số chương mục tiêu")}</label>
                 <input
@@ -80,7 +90,12 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Cách chạy")}</label>
-                <select value={flow} onChange={(e) => setFlow(e.target.value)} style={{ width: "100%" }}>
+                <select
+                  value={goalMode === "waves" ? "rolling" : flow}
+                  onChange={(e) => setFlow(e.target.value)}
+                  disabled={goalMode === "waves"}
+                  style={{ width: "100%" }}
+                >
                   <option value="rolling">{t(lang, FLOW_META.rolling.label)}</option>
                   <option value="batch">{t(lang, FLOW_META.batch.label)}</option>
                 </select>
@@ -94,7 +109,8 @@ export default function AiAuthoringStart({ lang }: { lang: Lang }) {
               </div>
             </div>
             <p style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0 0" }}>
-              {t(lang, FLOW_META[flow]?.desc ?? "")}
+              {t(lang, GOAL_META[goalMode]?.desc ?? "")}
+              {goalMode === "end" && <> {t(lang, FLOW_META[flow]?.desc ?? "")}</>}
             </p>
             {err && <div className="notice" style={{ marginTop: 8 }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
