@@ -931,86 +931,108 @@ async def h_chapter_write(db, run, step):
             "issues": issues[:8]}
 
 
-async def h_chapter_facts(db, run, step):
-    """Commit ritual — trích facts từ prose chương vào story tables (như ainovel ChapterFacts)."""
-    ch = await db.get(Chapter, step.ref_id)
+async def extract_chapter_facts(db, pid: str, ch, run=None) -> int:
+    """Trích facts từ prose chương vào story tables (như ainovel ChapterFacts).
+
+    run=None → standalone (re-extract/repair): gọi router trực tiếp, provenance
+    vẫn ghi origin="ai" (run_id=None) để lần sau wipe được."""
     scenes = [s for s in (await db.scalars(select(Scene).where(
         Scene.chapter_id == ch.id).order_by(Scene.order_index))).all()]
     prose = "\n\n".join(s.prose for s in scenes if s.prose)[:16000]
     if not prose.strip():
         raise ValueError("chapter chưa có prose")
     chars = {c.name: c for c in (await db.scalars(select(Character).where(
-        Character.project_id == run.project_id))).all()}
+        Character.project_id == pid))).all()}
     locs = {l.name: l for l in (await db.scalars(select(Location).where(
-        Location.project_id == run.project_id))).all()}
+        Location.project_id == pid))).all()}
     threads = {t.title: t for t in (await db.scalars(select(Thread).where(
-        Thread.project_id == run.project_id))).all()}
+        Thread.project_id == pid))).all()}
     prompt = (f"=== CHƯƠNG {ch.order_index}: {ch.title} ===\n{prose}\n\n"
               f"=== NHÂN VẬT ĐÃ BIẾT ===\n" + ", ".join(chars)[:800] + "\n\n"
               f"=== THREAD ĐANG MỞ ===\n" + ", ".join(threads)[:400] + "\n\n"
               "Trích facts theo schema chapter_facts.")
-    text, _ = await ai_call(db, run, "chapter_facts", prompt)
+    if run is not None:
+        text, _ = await ai_call(db, run, "chapter_facts", prompt)
+    else:
+        sys_p, body, _ = await build_story_prompt(db, pid, "chapter_facts", prompt)
+        result = await ModelRouter(db).complete(ModelRequest(
+            task="chapter_facts", prompt=body, project_id=pid, system=sys_p))
+        db.add(AiTurn(project_id=pid, scope_id=ch.id, task="chapter_facts",
+                      prompt_excerpt=body[:4000],
+                      reply_text=(result.text or "")[:4000],
+                      provider=result.provider or "", model=result.model or ""))
+        text = result.text or ""
+
+    def prov(et: str, eid: str):
+        db.add(EntityProvenance(project_id=pid, entity_type=et, entity_id=eid,
+                                run_id=run.id if run else None, origin="ai"))
+
     data = parse_json(text)
     n = 0
     narr = ch.order_index
     for e in (data.get("timeline_events") or [])[:15]:
-        ev = StoryEvent(project_id=run.project_id, scene_id=scenes[0].id if scenes else None,
+        ev = StoryEvent(project_id=pid, scene_id=scenes[0].id if scenes else None,
                         event_type=_clip(e.get("event_type"), 64) or "event",
                         summary=_clip(e.get("event") or e.get("summary"), 500) or "?",
                         story_time=e.get("story_time"), narrative_order=narr)
-        db.add(ev); await db.flush(); provenance(db, run, "story_event", ev.id); n += 1
+        db.add(ev); await db.flush(); prov("story_event", ev.id); n += 1
     for s_ in (data.get("state_changes") or [])[:20]:
         ent_name = (s_.get("entity") or "").strip()
         ent = chars.get(ent_name) or locs.get(ent_name)
         etype = "character" if ent_name in chars else ("location" if ent_name in locs else "other")
-        st = StoryState(project_id=run.project_id, entity_type=etype,
+        st = StoryState(project_id=pid, entity_type=etype,
                         # không khớp DB: giữ tên thô (≤36c) thay uuid rác —
                         # relink/debug được; constraints vẫn bỏ qua vì không resolve
                         entity_id=ent.id if ent else _clip(ent_name, 36) or uuid.uuid4().hex,
                         key=_clip(canonical_state_key(s_.get("field") or s_.get("key")), 120) or "state",
                         value_text=_clip(s_.get("new_value") or s_.get("value"), 400) or "?",
                         story_time=s_.get("story_time"), narrative_order=narr)
-        db.add(st); await db.flush(); provenance(db, run, "story_state", st.id); n += 1
+        db.add(st); await db.flush(); prov("story_state", st.id); n += 1
     for t_ in (data.get("thread_touches") or data.get("foreshadow_updates") or [])[:15]:
         title = (t_.get("thread") or t_.get("thread_title") or t_.get("id") or "").strip()
         if not title:
             continue
         th = threads.get(title)
         if not th:
-            th = Thread(project_id=run.project_id, title=title,
+            th = Thread(project_id=pid, title=title,
                         thread_type=_clip(t_.get("thread_type"), 32) or "mystery",
                         status="OPEN", description=t_.get("description"))
             db.add(th); await db.flush(); threads[title] = th
-            provenance(db, run, "thread", th.id)
-        beat = ThreadBeat(project_id=run.project_id, thread_id=th.id,
+            prov("thread", th.id)
+        beat = ThreadBeat(project_id=pid, thread_id=th.id,
                           scene_id=scenes[0].id if scenes else None,
                           beat_type=_clip(t_.get("action") or t_.get("beat_type"), 24) or "reinforcement",
                           narrative_order=narr, notes=_clip(t_.get("description") or t_.get("note"), 300))
-        db.add(beat); await db.flush(); provenance(db, run, "thread_beat", beat.id); n += 1
+        db.add(beat); await db.flush(); prov("thread_beat", beat.id); n += 1
     for f_ in (data.get("canon_facts") or [])[:15]:
-        cf = CanonFact(project_id=run.project_id,
+        cf = CanonFact(project_id=pid,
                        subject_type=_clip(f_.get("subject_type"), 64) or "story",
                        predicate=_clip(f_.get("predicate"), 120) or "fact",
                        value_text=_clip(f_.get("value_text"), 500) or "?",
                        truth_status="CANON",
                        source_scene_id=scenes[0].id if scenes else None)
-        db.add(cf); await db.flush(); provenance(db, run, "canon_fact", cf.id); n += 1
+        db.add(cf); await db.flush(); prov("canon_fact", cf.id); n += 1
     # recap gộp chung call — tóm tắt chương nuôi ancestor summaries cho các
     # cảnh/chương sau (không tốn thêm request model)
     recap = (data.get("recap") or "").strip()
     if recap:
         ex = (await db.scalars(select(StorySummary).where(
-            StorySummary.project_id == run.project_id,
+            StorySummary.project_id == pid,
             StorySummary.scope_type == "chapter",
             StorySummary.scope_id == ch.id))).first()
         if ex:
             ex.summary = _clip(recap, 2000); ex.stale = False
             ex.narrative_end = ch.order_index
         else:
-            db.add(StorySummary(project_id=run.project_id, scope_type="chapter",
+            db.add(StorySummary(project_id=pid, scope_type="chapter",
                                 scope_id=ch.id, summary=_clip(recap, 2000),
                                 narrative_end=ch.order_index))
-    return {"facts": n}
+    return n
+
+
+async def h_chapter_facts(db, run, step):
+    ch = await db.get(Chapter, step.ref_id)
+    return {"facts": await extract_chapter_facts(db, run.project_id, ch, run=run)}
 
 
 HANDLERS = {

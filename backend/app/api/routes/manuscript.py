@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models import Project, Volume, Arc, Chapter, Scene
@@ -122,10 +122,46 @@ async def patch_chapter(project_id: str, chapter_id: str, payload: ChapterPatch,
     await db.commit(); await db.refresh(obj); return obj
 
 @router.delete("/projects/{project_id}/chapters/{chapter_id}")
-async def delete_chapter(project_id:str,chapter_id:str,db:AsyncSession=Depends(get_db)):
+async def delete_chapter(project_id:str,chapter_id:str,compact:bool=True,db:AsyncSession=Depends(get_db)):
+    """Xoá chương: dọn facts trích của chương + scenes(+versions); compact →
+    khép trục narrative (chương sau tụt 1). Facts tác giả nhập tay giữ nguyên."""
+    from app.services.repair import delete_chapter_full
     obj=await db.get(Chapter,chapter_id)
     if not obj or obj.project_id!=project_id: raise HTTPException(404,"chapter not found")
-    await db.delete(obj); await db.commit(); return {"deleted":chapter_id}
+    removed=await delete_chapter_full(db,project_id,obj,compact=compact)
+    await db.commit(); return {"deleted":chapter_id,"removed_facts":removed}
+
+@router.post("/projects/{project_id}/chapters/insert")
+async def insert_chapter(project_id:str,p:ChapterInsert,db:AsyncSession=Depends(get_db)):
+    """Chèn chương vào giữa mạch — dời trục narrative đồng bộ mọi bảng rồi tạo."""
+    await project_or_404(db,project_id)
+    from app.services.repair import shift_narrative
+    max_o=(await db.scalar(select(func.max(Chapter.order_index))
+                           .where(Chapter.project_id==project_id))) or 0
+    if not 1<=p.order_index<=max_o+1: raise HTTPException(400,"order_index out of range")
+    if p.arc_id:
+        a=await db.get(Arc,p.arc_id)
+        if not a or a.project_id!=project_id: raise HTTPException(400,"arc outside project")
+    await shift_narrative(db,project_id,p.order_index,+1)
+    obj=Chapter(project_id=project_id,title=p.title,order_index=p.order_index,
+                volume_id=p.volume_id,arc_id=p.arc_id)
+    db.add(obj); await db.commit(); await db.refresh(obj)
+    return {"id":obj.id,"order_index":obj.order_index,"shifted":True}
+
+@router.post("/projects/{project_id}/chapters/{chapter_id}/reextract")
+async def reextract_chapter(project_id:str,chapter_id:str,db:AsyncSession=Depends(get_db)):
+    """Sửa prose xong → trích lại dữ kiện chương: wipe facts cũ (có provenance,
+    giữ facts tác giả/locked) rồi extract lại từ prose hiện tại."""
+    from app.services.repair import wipe_chapter_extractions
+    from app.services.authoring import extract_chapter_facts
+    ch=await db.get(Chapter,chapter_id)
+    if not ch or ch.project_id!=project_id: raise HTTPException(404,"chapter not found")
+    removed=await wipe_chapter_extractions(db,project_id,ch)
+    try:
+        added=await extract_chapter_facts(db,project_id,ch,run=None)
+    except ValueError as e:
+        raise HTTPException(400,str(e))
+    await db.commit(); return {"removed":removed,"added":added}
 
 @router.post("/projects/{project_id}/chapters/{chapter_id}/scenes", response_model=SceneOut)
 async def create_scene(project_id: str, chapter_id: str, payload: SceneCreate, db: AsyncSession=Depends(get_db)):
@@ -133,11 +169,18 @@ async def create_scene(project_id: str, chapter_id: str, payload: SceneCreate, d
     ch=await db.get(Chapter,chapter_id)
     if not ch or ch.project_id != project_id: raise HTTPException(404,"chapter not found in project")
     data=payload.model_dump()
+    siblings=list((await db.scalars(select(Scene).where(
+        Scene.chapter_id==chapter_id).order_by(Scene.order_index))).all())
+    # chèn giữa: order_index đụng/nhỏ hơn max → đẩy sibling >= vị trí lên 1
+    want=data.get("order_index") or 0
+    if siblings and 0<want<=siblings[-1].order_index:
+        for s in reversed([s for s in siblings if s.order_index>=want]):
+            s.order_index+=1
+        await db.flush()
     if data.get("story_time") is None:
-        prev=list((await db.scalars(select(Scene).where(
-            Scene.chapter_id==chapter_id).order_by(Scene.order_index.desc()))).all())
-        if prev and prev[0].story_time is not None:
-            data["story_time"]=prev[0].story_time
+        prev=[s for s in siblings if s.order_index<(want or 10**9)]
+        if prev and prev[-1].story_time is not None:
+            data["story_time"]=prev[-1].story_time
     if data.get("narrative_order") is None:
         data["narrative_order"]=ch.order_index
     obj=Scene(project_id=project_id, chapter_id=chapter_id, **data)

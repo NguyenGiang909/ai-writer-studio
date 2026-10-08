@@ -30,6 +30,34 @@ export default function ChapterDeepCheck({
   const [fixElapsed, setFixElapsed] = useState(0);
   const [preview, setPreview] = useState<{ sceneId: string; text: string } | null>(null);
   const fixAbort = useRef<AbortController | null>(null);
+  const [rex, setRex] = useState("");
+  const [rexBusy, setRexBusy] = useState(false);
+
+  async function reextract() {
+    if (!chid || rexBusy) return;
+    setRexBusy(true); setErr("");
+    try {
+      const r: any = await postJSON(`/api/v1/projects/${projectId}/chapters/${chid}/reextract`, {});
+      const rm = r.removed ?? {};
+      setRex(t(lang, "Đã thay {a} dữ kiện (xoá {b} cũ). Xem lại dữ kiện chương trong trang Tủ truyện.",
+        { a: r.added ?? 0, b: (rm.events ?? 0) + (rm.states ?? 0) + (rm.beats ?? 0) + (rm.facts ?? 0) }));
+    } catch (e: any) { setErr(e?.message ?? t(lang, "Lỗi trích lại")); }
+    finally { setRexBusy(false); }
+  }
+
+  async function insertAfter() {
+    const ch = chapters.find((c) => c.id === chid);
+    if (!ch) return;
+    const title = window.prompt(t(lang,
+      "Tên chương mới — sẽ chèn NGAY SAU chương {n}, các chương sau tự dời (đồng bộ cả dữ kiện/sự kiện/tóm tắt):",
+      { n: ch.order_index }));
+    if (!title?.trim()) return;
+    try {
+      await postJSON(`/api/v1/projects/${projectId}/chapters/insert`,
+        { title: title.trim(), order_index: ch.order_index + 1 });
+      window.location.reload();
+    } catch (e: any) { setErr(e?.message ?? t(lang, "Lỗi chèn chương")); }
+  }
 
   useEffect(() => {
     if (!fixing) return;
@@ -55,6 +83,7 @@ export default function ChapterDeepCheck({
     if (!preview) return;
     await patchJSON(`/api/v1/projects/${projectId}/scenes/${preview.sceneId}`, { prose: preview.text });
     setPreview(null);
+    setRex(t(lang, "Đã áp dụng bản sửa — bấm 'Trích lại dữ kiện chương' để cập nhật dữ kiện."));
   }
 
   async function reload() {
@@ -115,6 +144,17 @@ export default function ChapterDeepCheck({
             </button>
           </>
         )}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+        <button className="btn ghost" onClick={reextract} disabled={!chid || rexBusy}
+          title={t(lang, "Xoá dữ kiện AI đã trích của chương rồi trích lại từ văn hiện tại — dùng sau khi sửa prose. Dữ kiện tác giả nhập tay được giữ.")}>
+          {rexBusy ? t(lang, "Đang trích lại…") : t(lang, "Trích lại dữ kiện chương")}
+        </button>
+        <button className="btn ghost" onClick={insertAfter} disabled={!chid}
+          title={t(lang, "Chèn chương bổ sung ngay sau chương đang chọn — toàn bộ thứ tự chương/sự kiện/trạng thái/tóm tắt phía sau tự dời")}>
+          {t(lang, "＋ Chương sau")}
+        </button>
+        {rex && <span className="subtle">{rex}</span>}
       </div>
       {err && <p style={{ color: "var(--red)" }}>{err}</p>}
 

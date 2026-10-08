@@ -28,6 +28,10 @@ class ChapterCreate(BaseModel):
 class ChapterPatch(BaseModel):
     title: str | None = None; order_index: int | None = None
     status: str | None = None; arc_id: str | None = None
+class ChapterInsert(BaseModel):
+    """Chèn chương vào trước order_index — backend dời trục narrative đồng bộ."""
+    title: str; order_index: int
+    volume_id: str | None = None; arc_id: str | None = None
 class ChapterOut(ORMModel):
     id: str; project_id: str; title: str; order_index: int; status: str
     volume_id: str | None = None; arc_id: str | None = None

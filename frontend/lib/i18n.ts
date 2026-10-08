@@ -932,4 +932,20 @@ const EN: Record<string, string> = {
   "Viết cảnh": "Write scene",
   "Trích diễn biến": "Extract chapter facts",
   "Dừng cuối sóng": "Wave-boundary pause",
+  // repair workflow
+  "Trích lại dữ kiện chương": "Re-extract chapter facts",
+  "Đang trích lại…": "Re-extracting…",
+  "＋ Chương sau": "＋ Insert chapter after",
+  "Lỗi trích lại": "Re-extraction failed",
+  "Lỗi chèn chương": "Insert chapter failed",
+  "Đã áp dụng bản sửa — bấm 'Trích lại dữ kiện chương' để cập nhật dữ kiện.":
+    "Fix applied — press 'Re-extract chapter facts' to refresh extracted data.",
+  "Đã thay {a} dữ kiện (xoá {b} cũ). Xem lại dữ kiện chương trong trang Tủ truyện.":
+    "Replaced with {a} facts ({b} old removed). Review chapter data in the Story vault.",
+  "Xoá dữ kiện AI đã trích của chương rồi trích lại từ văn hiện tại — dùng sau khi sửa prose. Dữ kiện tác giả nhập tay được giữ.":
+    "Delete AI-extracted facts for this chapter and re-extract from current prose — use after editing. Author-entered facts are kept.",
+  "Chèn chương bổ sung ngay sau chương đang chọn — toàn bộ thứ tự chương/sự kiện/trạng thái/tóm tắt phía sau tự dời":
+    "Insert a supplementary chapter right after the selected one — all later chapter/event/state/summary ordering shifts automatically",
+  "Tên chương mới — sẽ chèn NGAY SAU chương {n}, các chương sau tự dời (đồng bộ cả dữ kiện/sự kiện/tóm tắt):":
+    "New chapter title — inserted RIGHT AFTER chapter {n}; later chapters shift (events/states/summaries shift along):",
 };
