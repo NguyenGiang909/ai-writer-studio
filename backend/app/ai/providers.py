@@ -143,6 +143,11 @@ class OpenAICompatibleProvider(BaseProvider):
         messages = ([{"role": "system", "content": request.system}] if request.system else []) \
             + [{"role": "user", "content": request.prompt}]
         payload = {"model": model, "messages": messages}
+        if "kiraai.vn" in self.base_url:
+            # kiraai free tier: reasoning model đốt completion token "nghĩ" ~80tok/s
+            # trong khi gateway cắt request >60s → 504. reasoning_effort=low ép
+            # thinking ngắn lại, call qua được ngưỡng gateway.
+            payload["reasoning_effort"] = "low"
         last_exc: httpx.HTTPError | None = None
         for attempt in range(3):
             try:
@@ -155,8 +160,9 @@ class OpenAICompatibleProvider(BaseProvider):
                 r.raise_for_status()
                 break
             except httpx.HTTPStatusError as e:
-                # 4xx (auth/quota) — fail fast, retry vô ích
-                if e.response.status_code < 500:
+                # 4xx + 504/413/408 — fail fast: auth/quota lỗi vĩnh viễn,
+                # gateway-timeout/request-quá-nặng retry giống hệt vẫn chết
+                if e.response.status_code < 500 or e.response.status_code in (504, 413, 408):
                     raise
                 last_exc = e
             except (httpx.TimeoutException, httpx.TransportError) as e:
@@ -170,8 +176,12 @@ class OpenAICompatibleProvider(BaseProvider):
         text = msg.get("content")
         if isinstance(text, list):  # content parts (some providers)
             text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
-        if not text:
-            text = msg.get("reasoning_content") or ""
+        if not (text or "").strip():
+            # model dừng ở phần "nghĩ" (reasoning_content) trước khi trả lời —
+            # KHÔNG fallback vào reasoning_content (nó là scratchpad, sẽ leak
+            # ghi chú planning tiếng Anh vào bản thảo). Báo lỗi để retry/lại brief.
+            raise RuntimeError(
+                "Model returned empty content — output truncated at reasoning stage")
         return CompletionResult(
             text=text,
             provider=self.name, model=model,

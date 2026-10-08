@@ -70,6 +70,18 @@ export default function SceneEditor({
   const proseRef = useRef<HTMLTextAreaElement>(null);
   const scenePath = `/api/v1/projects/${projectId}/scenes/${scene.id}`;
 
+  // router.refresh() (vd: AiPanel "Chèn để sửa") đưa prop scene.prose mới —
+  // sync vào state để editor hiển thị văn mới; KHÔNG sync khi đang có sửa tay
+  // chưa flush (pending/timer) để không nuốt ký tự đang gõ.
+  useEffect(() => {
+    const dirty = Object.keys(pending.current).length > 0 || !!timer.current;
+    if (dirty) return;
+    const v = scene.prose ?? "";
+    setProse((cur) => (cur !== v ? v : cur));
+    const sk = scene.skeleton ?? "";
+    setSkeleton((cur) => (cur !== sk ? sk : cur));
+  }, [scene.prose, scene.skeleton]);
+
   function queueSave(patch: Record<string, unknown>) {
     Object.assign(pending.current, patch);
     if ("prose" in patch && sumId) setSumStale(true);
