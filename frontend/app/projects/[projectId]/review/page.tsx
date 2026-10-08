@@ -3,6 +3,7 @@ import { getJSON } from "../../../../lib/api";
 import ActionButton from "../../../../components/ActionButton";
 import ListFilter from "../../../../components/ListFilter";
 import ReviewIssues from "../../../../components/ReviewIssues";
+import ChapterDeepCheck from "../../../../components/ChapterDeepCheck";
 import { kindLabel, statusLabel, payloadText } from "../../../../lib/labels";
 import { getLang } from "../../../../lib/lang-server";
 import { t } from "../../../../lib/i18n";
@@ -13,11 +14,15 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
   const { projectId } = await params;
   const lang = await getLang();
   const base = `/api/v1/projects/${projectId}`;
-  const [pending, resolved, continuity] = await Promise.all([
+  const [pending, resolved, continuity, manuscript] = await Promise.all([
     safe(`${base}/suggestions?status=pending`),
     safe(`${base}/suggestions`),
     safe(`${base}/continuity/check`),
+    safe(`${base}/manuscript`),
   ]);
+  const chapters = (manuscript.chapters ?? [])
+    .filter((c: any) => (c.scenes ?? []).some((s: any) => s.prose))
+    .map((c: any) => ({ id: c.id, title: c.title, order_index: c.order_index }));
   const done = resolved.filter((s: any) => s.status !== "pending");
   const count = continuity.count ?? (continuity.issues ?? []).length ?? 0;
 
@@ -35,6 +40,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
           <p className="subtle">{t(lang, "Kiểm tra tự động, chỉ đọc — không tự sửa bản thảo.")}</p>
           <ReviewIssues issues={continuity.issues ?? []} projectId={projectId} />
         </div>
+        <ChapterDeepCheck projectId={projectId} chapters={chapters ?? []} />
         <div className="card">
           <h3>{t(lang, "Nguyên tắc")}</h3>
           <p>

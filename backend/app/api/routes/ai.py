@@ -1,22 +1,25 @@
 
 import json,re
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,Body
 from sqlalchemy import select,delete,func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.models import Project,Chapter,Scene
-from app.models.review import SuggestedChange
+from app.models import Project,Chapter,Scene,Arc
+from app.models.review import SuggestedChange,AuditFinding
 from app.models.story import Character,Alias,Location,Ability,Item,Relationship
 from app.models.narrative import Thread,ThreadBeat
-from app.models.truth import KnowledgeState,StoryState,CanonFact
+from app.models.truth import KnowledgeState,StoryState,CanonFact,StoryEvent
 from app.models.memory import AiTurn
 from app.services.state import states_at,effective_at
-from app.services.constraints import canonical_state_key
+from app.services.constraints import canonical_state_key,build_constraints
 from app.ai.context import ContextBuilder,ContextItem
 from app.ai.router import ModelRouter,ModelRequest
 from app.ai.compose import build_story_prompt
 from app.ai.writer import parse_author_brief,allocate_word_budget,line_diff
-from app.services.continuity import restricted_appearance,location_conflict,ability_locked,item_owner_mismatch,relationship_ended,stale_thread,dedupe,Issue
+from app.services.continuity import (restricted_appearance,location_conflict,ability_locked,
+    item_owner_mismatch,relationship_ended,stale_thread,dedupe,Issue,
+    canon_conflict,state_conflict,state_regression,unplanned_location,
+    phase_leak,missing_extraction,scene_no_narr)
 from app.schemas.extras import *
 router=APIRouter()
 
@@ -370,10 +373,259 @@ async def continuity_check(pid:str,db:AsyncSession=Depends(get_db)):
             iss=stale_thread(th,last_beat.get(th.id),current)
             if iss: issues.append(iss)
 
+    # ---- audit mở rộng (deterministic): lớp lỗi phát hiện từ project 58 chương ----
+    all_states=list((await db.scalars(select(StoryState).where(StoryState.project_id==pid))).all())
+    events=list((await db.scalars(select(StoryEvent).where(StoryEvent.project_id==pid))).all())
+
+    def _entity_label(et,eid):
+        ent=_SUBJ.get(et,{}).get(eid)
+        return getattr(ent,"name",None) or f"{et}:{(eid or '')[:8]}"
+
+    # CANON_CONFLICT — cùng (subject, predicate) nhiều value_text khác nhau.
+    # Extractor ghi subject_id=NULL và nhét subject vào subject_type text tự do
+    # → phải resolve entity trước khi group, và chỉ flag predicate đơn-trị.
+    _GENERIC_SUBJ={"nhân vật","nhan vat","nhân_vật","person","character","người",
+        "địa điểm","địa_điểm","place","location","sự kiện","sự_kiện","event",
+        "đồ vật","đồ_vật","object","item","sự vật","sự_vật","vật","vật_dụng",
+        "document","group","tổ chức","phong tục","phong_tục","thời gian",
+        "bối cảnh","rule","trò chơi","hoạt động","phương tiện","hàng xóm",
+        "gia đình","thời_sự","sự việc","chi tiết","quy tắc","khái niệm","giai đoạn"}
+    _SINGLEVAL_PRED={"age","education","location","lifecycle","ownership","status",
+        "tên","tên gọi","tên_gọi","tuổi","lớp","nghề","nghề nghiệp","nghề_nghiệp",
+        "công việc","công_việc","quê","quê quán","quê_quán","năm sinh","nick",
+        "nickname","nick_yahoo","vị trí lớp","tiền tiết kiệm","địa chỉ","chức vụ"}
+    ent_terms=[]  # (pattern, etype, eid, name) — match tên entity trong text tự do
+    for et,mp in (("character",chars),("location",locs),("item",items)):
+        for eid,e in mp.items():
+            for nm in {getattr(e,"name",None) or "",
+                       *((a.alias or "") for a in aliases if et=="character" and a.character_id==eid)}:
+                nm=nm.strip()
+                if len(nm)>=2: ent_terms.append((re.compile(r"\b"+re.escape(nm)+r"\b",re.IGNORECASE),et,eid,nm))
+            if et=="character" and getattr(e,"name",None):
+                last=e.name.split()[-1]
+                if len(last)>=3: ent_terms.append((re.compile(r"\b"+re.escape(last)+r"\b"),et,eid,last))
+    ent_terms.sort(key=lambda t:-len(t[3]))
+    def _match_entity(text):
+        for pat,et,eid,_nm in ent_terms:
+            if pat.search(text or ""): return (et,eid)
+        return None
+    def _subject_of(f):
+        if f.subject_id:
+            for et,mp in (("character",chars),("location",locs),("item",items)):
+                if f.subject_id in mp: return (et,f.subject_id)
+            m=_match_entity(f.subject_id)
+            if m: return m
+        st=(f.subject_type or "").strip()
+        if st and st.lower() not in _GENERIC_SUBJ:
+            return _match_entity(st) or ("label",st.lower())
+        return _match_entity(f.value_text or "")
+    cgroups={}
+    for f in facts_by_id.values():
+        if (f.truth_status or "CANON").upper()=="REJECTED": continue
+        pk=canonical_state_key(f.predicate or "") or (f.predicate or "").strip().lower()
+        if pk not in _SINGLEVAL_PRED: continue
+        subj=_subject_of(f)
+        if subj is None: continue
+        cgroups.setdefault((subj,pk),[]).append(f)
+    for (subj,pk),fs in cgroups.items():
+        lbl=_entity_label(*subj) if subj[0]!="label" else subj[1]
+        cid=subj[1] if subj[0]=="character" else None
+        iss=canon_conflict(lbl,pk,[f.id for f in fs],
+                           [f.value_text for f in fs],cid)
+        if iss: issues.append(iss)
+
+    # STATE_CONFLICT — cùng entity+canonical key tại cùng narrative_order
+    sgroups={}
+    for s in all_states:
+        sgroups.setdefault((s.entity_type,s.entity_id,canonical_state_key(s.key),
+                            s.narrative_order),[]).append(s)
+    for (et,eid,ck,narr),ss in sgroups.items():
+        iss=state_conflict(_entity_label(et,eid),ck,narr,[s.id for s in ss],
+                           [s.value_text for s in ss],et,eid)
+        if iss: issues.append(iss)
+
+    # STATE_REGRESSION — tuổi/lớp lùi khi narrative_order tăng
+    regseq={}
+    for (et,eid,ck,narr),ss in sgroups.items():
+        if ck not in ("age","education") or narr is None: continue
+        regseq.setdefault((et,eid,ck),[]).append((narr,ss[-1].value_text))
+    for (et,eid,ck),seq in regseq.items():
+        seq.sort(key=lambda x:x[0]); prev=None
+        for narr,val in seq:
+            if prev is not None:
+                iss=state_regression(_entity_label(et,eid),ck,prev,(narr,val),et,eid)
+                if iss: issues.append(iss); break
+            prev=(narr,val)
+
+    # LOCATION_DRIFT — prose nhắc Location ∉ (skeleton ∪ nơi-ở đã ghi)
+    loc_terms={l.id:l.name.strip() for l in locs.values() if l.name and len(l.name.strip())>=3}
+    known_locs={}
+    for s in all_states:
+        if (s.entity_type=="character" and canonical_state_key(s.key)=="location"
+            and s.narrative_order is not None):
+            known_locs.setdefault(s.narrative_order,set()).add(s.value_text.strip().lower())
+    for sc in scenes:
+        if not sc.prose or sc.narrative_order is None or not loc_terms: continue
+        skel=(sc.skeleton or "").lower()
+        allowed=set().union(*(vv for n,vv in known_locs.items() if n<=sc.narrative_order)) \
+                if known_locs else set()
+        for lid,ln in loc_terms.items():
+            if not re.search(r"\b"+re.escape(ln)+r"\b",sc.prose,re.IGNORECASE): continue
+            if ln.lower() in skel or any(ln.lower() in a or a in ln.lower() for a in allowed):
+                continue
+            iss=unplanned_location(ln,lid,sc.id,sc.title or "?",sc.narrative_order)
+            if iss: issues.append(iss)
+
+    # PHASE_LEAK — prose nhắc entity trước mốc nó xuất hiện trong dữ kiện
+    first_narr={}
+    for s in all_states:
+        if s.narrative_order is None: continue
+        k=(s.entity_type,s.entity_id)
+        if k not in first_narr or s.narrative_order<first_narr[k]: first_narr[k]=s.narrative_order
+    for ev in events:
+        if ev.narrative_order is None or not ev.location_id: continue
+        k=("location",ev.location_id)
+        if k not in first_narr or ev.narrative_order<first_narr[k]: first_narr[k]=ev.narrative_order
+    for sc in scenes:
+        if not sc.prose or sc.narrative_order is None: continue
+        for (et,eid),fn in first_narr.items():
+            if et not in ("location","item") or fn<=sc.narrative_order: continue
+            nm=_entity_label(et,eid)
+            if ":" in nm[:len(et)+2]: continue
+            if not re.search(r"\b"+re.escape(nm)+r"\b",sc.prose,re.IGNORECASE): continue
+            issues.append(phase_leak(nm,et,eid,sc.id,sc.title or "?",sc.narrative_order,fn))
+
+    # MISSING_EXTRACTION — chương có prose nhưng chưa trích sự kiện
+    ev_narrs={ev.narrative_order for ev in events if ev.narrative_order is not None}
+    for ch in chapters.values():
+        if ch.order_index in ev_narrs: continue
+        if any(s.chapter_id==ch.id and s.prose for s in scenes):
+            issues.append(missing_extraction(ch.id,ch.title or "?",ch.order_index))
+
+    # SCENE_NO_NARR — prose có mà thiếu narrative_order
+    for sc in scenes:
+        if sc.prose and sc.narrative_order is None:
+            ch=chapters.get(sc.chapter_id)
+            issues.append(scene_no_narr(sc.id,sc.title or "?",ch.order_index if ch else None))
+
     out=dedupe(issues)
     return {"issues":[{"code":i.code,"category":i.category,"severity":i.severity,
                        "message":i.message,"evidence":i.evidence} for i in out],
             "count":len(out),"auto_mutations":0}
+
+# ---- AI deep-check: soi 1 chương bằng model (lỗi nghĩa deterministic không bắt được) ----
+_DEEP_SYSTEM=(
+    "Bạn là biên tập viên kiểm tra tính liên tục của truyện dài. Đọc chương được cung cấp "
+    "(xương cảnh + văn) và chỉ ra CÁC LỖI NỘI DUNG:\n"
+    "- sự kiện bị viết 2 lần với chi tiết mâu thuẫn giữa các cảnh trong chương\n"
+    "- chi tiết nhân vật/sự vật tự phủ nhận (con số, tuổi, đồ vật, hành động)\n"
+    "- văn lệch xương cảnh đã dàn hoặc lệch trạng thái đã chốt (bối cảnh, thời điểm, ai ở đâu)\n"
+    "- nhân vật/địa danh xuất hiện sai pha truyện\n"
+    "Mỗi lỗi một mục. KHÔNG bình luận văn phong, không chế lỗi khi văn ổn. "
+    "Trả về JSON THUẦN (không markdown, không giải thích ngoài): "
+    '[{"scene":"tên cảnh hoặc null","severity":"error|warning","message":"mô tả lỗi gọn",'
+    '"suggestion":"gợi ý sửa ngắn"}]. Không có lỗi thì trả [].'
+)
+
+@router.post("/projects/{pid}/chapters/{chid}/deep-check")
+async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
+    """AI soi một chương — semantic issues mà checker deterministic không bắt được.
+    Kết quả lưu vào audit_findings (bản nháp phát hiện, không phải canon)."""
+    await project_ok(db,pid)
+    ch=await db.get(Chapter,chid)
+    if not ch or ch.project_id!=pid: raise HTTPException(404,"chapter not found")
+    scs=list((await db.scalars(select(Scene).where(Scene.chapter_id==chid)
+                               .order_by(Scene.order_index))).all())
+    if not any(s.prose for s in scs): raise HTTPException(400,"chapter has no prose")
+    total=(await db.scalar(select(func.max(Chapter.order_index))
+                           .where(Chapter.project_id==pid))) or ch.order_index
+    arc=await db.get(Arc,ch.arc_id) if ch.arc_id else None
+    cons=await build_constraints(db,pid,Scene(narrative_order=ch.order_index))
+    blk=["=== TRẠNG THÁI ĐÃ CHỐT TẠI CHƯƠNG NÀY ==="]+ \
+        [f"- {x}" for x in cons.get("must_respect",[])[:15]] if cons.get("must_respect") else []
+    parts=[f"=== CHƯƠNG {ch.order_index}/{total}: \"{ch.title}\""
+           + (f" — Hồi \"{arc.title}\"" if arc else "") + " ==="]+blk
+    for i,sc in enumerate(scs):
+        seg=[f'--- Cảnh {i+1}: "{sc.title or "?"}"'
+             + (f"\nXương cảnh: {sc.skeleton}" if sc.skeleton else "")]
+        prose=(sc.prose or "").strip()
+        if prose:
+            cut=prose[:3500]+("…[cắt bớt]" if len(prose)>3500 else "")
+            seg.append(f"Văn:\n{cut}")
+        else: seg.append("(chưa có văn)")
+        parts.append("\n".join(seg))
+    prompt="\n\n".join(parts)+"\n\nTrả JSON theo schema đã nêu trong system."
+    try:
+        result=await ModelRouter(db).complete(
+            ModelRequest(task="review",prompt=prompt,project_id=pid,system=_DEEP_SYSTEM))
+    except RuntimeError as e: raise HTTPException(503,str(e))
+    txt=(result.text or "").strip()
+    m=re.search(r"\[.*\]",txt,re.DOTALL)
+    found=[]
+    if m:
+        try:
+            raw=json.loads(m.group())
+            title2id={s.title:s.id for s in scs if s.title}
+            for it in (raw if isinstance(raw,list) else []):
+                if not isinstance(it,dict) or not it.get("message"): continue
+                found.append({
+                    "code":str(it.get("code") or "AI_REVIEW")[:40],
+                    "severity":it.get("severity") if it.get("severity") in ("error","warning","info") else "warning",
+                    "message":str(it["message"])[:400],
+                    "suggestion":str(it.get("suggestion") or "")[:300],
+                    "scene_id":title2id.get(it.get("scene"))})
+        except (json.JSONDecodeError,TypeError): pass
+    f=AuditFinding(project_id=pid,scope_type="chapter",scope_id=chid,
+                   issues_json=json.dumps(found,ensure_ascii=False))
+    db.add(f)
+    db.add(AiTurn(project_id=pid,scope_id=chid,task="deep_check",
+                  prompt_excerpt=prompt[:4000],reply_text=txt[:4000],
+                  provider=result.provider or "",model=result.model or ""))
+    await db.commit()
+    return {"finding_id":f.id,"issues":found,"count":len(found),
+            "provider":result.provider,"model":result.model}
+
+@router.post("/projects/{pid}/scenes/{sid}/ai-fix")
+async def ai_fix_scene(pid:str,sid:str,p:dict=Body(...),db:AsyncSession=Depends(get_db)):
+    """AI sửa một cảnh theo mô tả lỗi — trả bản nháp, KHÔNG ghi DB.
+    Tác giả xem/patch tay → scene_versions tự snapshot nên revert được."""
+    await project_ok(db,pid)
+    sc=await db.get(Scene,sid)
+    if not sc or sc.project_id!=pid: raise HTTPException(404,"scene not found")
+    if not (sc.prose or "").strip(): raise HTTPException(400,"scene has no prose")
+    issue=str(p.get("issue") or "").strip() or "Tự soi và sửa các lỗi liên tục rõ ràng nhất trong đoạn văn."
+    user_prompt=(f"ĐOẠN VĂN GỐC:\n{sc.prose}\n\nGHI CHÚ CẦN SỬA:\n{issue}\n\n"
+                 "Chỉ sửa đúng lỗi đã nêu, giữ nguyên phần còn lại và văn phong tác giả.")
+    system,prompt,manifest=await build_story_prompt(db,pid,"revision",user_prompt,sid)
+    try:
+        result=await ModelRouter(db).complete(
+            ModelRequest(task="revision",prompt=prompt,project_id=pid,system=system))
+    except RuntimeError as e: raise HTTPException(503,str(e))
+    db.add(AiTurn(project_id=pid,scope_id=sid,task="ai_fix",
+                  prompt_excerpt=prompt[:4000],reply_text=(result.text or "")[:4000],
+                  provider=result.provider or "",model=result.model or ""))
+    await db.commit()
+    return {"revised":result.text or "","provider":result.provider,"model":result.model,
+            "context":manifest}
+
+@router.get("/projects/{pid}/audit/findings")
+async def audit_findings(pid:str,db:AsyncSession=Depends(get_db)):
+    await project_ok(db,pid)
+    rows=list((await db.scalars(select(AuditFinding)
+        .where(AuditFinding.project_id==pid)
+        .order_by(AuditFinding.created_at.desc()))).all())
+    chs={c.id:c for c in (await db.scalars(select(Chapter).where(Chapter.project_id==pid))).all()}
+    return {"findings":[{"id":r.id,"scope_type":r.scope_type,"scope_id":r.scope_id,
+                         "chapter_title":chs.get(r.scope_id).title if r.scope_id in chs else None,
+                         "chapter_order":chs.get(r.scope_id).order_index if r.scope_id in chs else None,
+                         "issues":json.loads(r.issues_json or "[]"),"created_at":r.created_at}
+                        for r in rows]}
+
+@router.delete("/audit/findings/{fid}")
+async def delete_finding(fid:str,db:AsyncSession=Depends(get_db)):
+    r=await db.get(AuditFinding,fid)
+    if not r: raise HTTPException(404,"not found")
+    await db.delete(r); await db.commit(); return {"ok":True}
 
 # ---- AI turn history (audit trail mọi call ai/complete) ----
 def _turn_out(t:AiTurn)->dict:

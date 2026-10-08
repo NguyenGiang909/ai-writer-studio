@@ -8,7 +8,7 @@ EXPECTED={"projects","volumes","arcs","chapters","scenes","scene_versions",
  "canon_facts","author_decisions","story_events","story_states","knowledge_states","secrets",
  "threads","thread_beats","thread_dependencies",
  "discussion_threads","discussion_messages","style_preferences",
- "suggested_changes","story_summaries","retcon_proposals","ai_turns",
+ "suggested_changes","story_summaries","retcon_proposals","ai_turns","audit_findings",
  "provider_credentials","model_preferences","story_branches","branch_changes","usage_logs",
  "authoring_runs","authoring_steps","entity_provenance"}
 

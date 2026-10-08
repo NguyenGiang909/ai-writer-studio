@@ -1,4 +1,5 @@
 
+import re
 from dataclasses import dataclass
 @dataclass
 class Issue:
@@ -88,3 +89,108 @@ def stale_thread(thread,last_touched_order:int|None,current_order:int|None,gap:i
             f"Hố '{thread.title}' nằm im ~{current_order-base} chương kể từ lần chạm cuối.",
             {"thread_id":thread.id,"last_touched":base,"current":current_order})
     return None
+
+# ---- audit toàn project: lớp lỗi dữ liệu/pha truyện (thấy từ ch2 project 58ch) ----
+
+def _uniq_vals(values:list[str]):
+    seen={}
+    for v in values:
+        k=re.sub(r"\s+"," ",(v or "").strip().lower())
+        if k and k not in seen: seen[k]=(v or "").strip()
+    out=list(seen.values())
+    # bỏ giá trị là tập con của giá trị khác (near-duplicate, không phải mâu thuẫn)
+    def _norm(x): return re.sub(r"\s+"," ",x.strip().lower())
+    return [v for v in out
+            if not any(v is not w and _norm(v) in _norm(w) for w in out)]
+
+def _options_from(items:list[tuple[str,str]],vals:list[str]):
+    """Mỗi unique value → list id fact/state mang giá trị đó (cho nút 'giữ giá trị này')."""
+    def nv(x): return re.sub(r"\s+"," ",(x or "").strip().lower())
+    return [{"value":v,"ids":[i for i,iv in items if nv(iv)==nv(v)]} for v in vals]
+
+def canon_conflict(subject_label:str,predicate:str,fact_ids:list[str],values:list[str],
+                   character_id:str|None=None):
+    """Canon facts cùng (subject, predicate) nhưng giá trị khác nhau — tuổi/nghề/quê lệch nhau."""
+    vals=_uniq_vals(values)
+    if len(vals)<2: return None
+    show=" · ".join(f"'{v[:40]}'" for v in vals[:5])
+    return Issue("CANON_CONFLICT","canon","warning",
+        f"'{predicate}' của {subject_label} có {len(vals)} giá trị mâu thuẫn: {show} — cần tác giả chốt một.",
+        {"fact_id":fact_ids[0],"predicate":predicate,
+         "options":_options_from(list(zip(fact_ids,values)),vals),
+         "character_id":character_id})
+
+def state_conflict(entity_label:str,key:str,narr:int|None,state_ids:list[str],values:list[str],
+                   entity_type:str,entity_id:str):
+    """Cùng entity+key tại cùng vị trí narrative mà 2 giá trị khác nhau."""
+    vals=_uniq_vals(values)
+    if len(vals)<2: return None
+    where=f"chương {narr}" if narr is not None else "vị trí chưa gán"
+    show=" · ".join(f"'{v[:40]}'" for v in vals[:4])
+    return Issue("STATE_CONFLICT","state","warning",
+        f"{entity_label} — '{key}' tại {where} có {len(vals)} giá trị mâu thuẫn: {show}.",
+        {"entity_type":entity_type,"entity_id":entity_id,"key":key,"narrative_order":narr,
+         "options":_options_from(list(zip(state_ids,values)),vals),
+         "character_id":entity_id if entity_type=="character" else None})
+
+_VN_NUM={"một":1,"mốt":1,"hai":2,"ba":3,"bốn":4,"tư":4,"năm":5,"lăm":5,"sáu":6,
+         "bảy":7,"bẩy":7,"tám":8,"chín":9}
+def num_from(text:str|None):
+    """Số đầu tiên trong chuỗi, hoặc số chữ tiếng Việt (lớp Chín→9, lớp Sáu→6)."""
+    if not text: return None
+    m=re.search(r"\d+",text)
+    if m: return int(m.group())
+    tl=text.lower()
+    if "mười" in tl:
+        tail=tl.split("mười",1)[1]
+        for w in tail.split():
+            if w in _VN_NUM: return 10+_VN_NUM[w]
+        return 10
+    for w,n in _VN_NUM.items():
+        if re.search(r"\b"+w+r"\b",tl): return n
+    return None
+
+def state_regression(entity_label:str,key:str,prev:tuple[int,str],cur:tuple[int,str],
+                     entity_type:str,entity_id:str):
+    """Tuổi/lớp giảm khi narrative_order tăng — mạch truyện không lùi tuổi nếu không có hồi ức."""
+    pn,cn=num_from(prev[1]),num_from(cur[1])
+    if pn is None or cn is None or cn>=pn: return None
+    return Issue("STATE_REGRESSION","state","warning",
+        f"{entity_label}: '{key}' lùi ngược mạch — '{prev[1]}' (chương {prev[0]}) → '{cur[1]}' (chương {cur[0]}).",
+        {"entity_type":entity_type,"entity_id":entity_id,"key":key,
+         "prev_narrative_order":prev[0],"prev_value":prev[1],
+         "narrative_order":cur[0],"value":cur[1],
+         "character_id":entity_id if entity_type=="character" else None})
+
+def unplanned_location(loc_name:str,loc_id:str,scene_id:str,scene_title:str,scene_narr:int|None):
+    """Prose nhắc một địa danh không nằm trong dàn ý cảnh lẫn trạng thái vị trí — nghi lệch pha."""
+    return Issue("LOCATION_DRIFT","place","warning",
+        f"Cảnh '{scene_title}' nhắc '{loc_name}' nhưng địa danh này không có trong xương cảnh "
+        f"và không phải nơi ở đã ghi của nhân vật — kiểm tra lệch bối cảnh/pha truyện.",
+        {"location_id":loc_id,"scene_id":scene_id,"narrative_order":scene_narr,
+         "location":loc_name})
+
+def phase_leak(entity_label:str,entity_type:str,entity_id:str,scene_id:str,
+               scene_title:str,scene_narr:int|None,first_narr:int):
+    """Entity được nhắc trong prose trước khi nó tồn tại trong trạng thái/sự kiện đã ghi."""
+    return Issue("PHASE_LEAK","timeline","warning",
+        f"Cảnh '{scene_title}' (chương {scene_narr}) nhắc {entity_label} nhưng thực thể này "
+        f"mới xuất hiện trong dữ kiện từ chương {first_narr} — có thể lẫn pha truyện sau.",
+        {"entity_type":entity_type,"entity_id":entity_id,"scene_id":scene_id,
+         "scene_narrative_order":scene_narr,"first_narrative_order":first_narr,
+         "location_id":entity_id if entity_type=="location" else None,
+         "item_id":entity_id if entity_type=="item" else None})
+
+def missing_extraction(chapter_id:str,chapter_title:str,order:int|None):
+    """Chương đã có prose nhưng chưa trích sự kiện — các chương/cảnh sau thiếu bối cảnh."""
+    return Issue("MISSING_EXTRACTION","pipeline","info",
+        f"Chương {order} '{chapter_title}' có văn nhưng chưa trích dữ kiện (0 sự kiện) — "
+        f"cảnh sau sẽ viết thiếu ngữ cảnh.",
+        {"chapter_id":chapter_id,"narrative_order":order})
+
+def scene_no_narr(scene_id:str,scene_title:str,chapter_order:int|None):
+    """Scene có prose mà narrative_order NULL — cơ chế lọc theo vị trí không áp được."""
+    return Issue("SCENE_NO_NARR","pipeline","info",
+        f"Cảnh '{scene_title}' (chương {chapter_order}) có văn nhưng thiếu narrative_order — "
+        f"trạng thái/knowledge không lọc theo vị trí được.",
+        {"scene_id":scene_id,"chapter_order":chapter_order})

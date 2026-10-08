@@ -45,6 +45,9 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 
 ## Đã xong gần đây
 
+- **Audit dò lỗi toàn project** (pid-scoped → mọi dự án): `/continuity/check` thêm 7 checker — CANON_CONFLICT (subject resolve về entity, predicate đơn-trị, bỏ near-dup), STATE_CONFLICT (cùng vị trí narr), STATE_REGRESSION (tuổi/lớp lùi, num_from parse số chữ VI), LOCATION_DRIFT (prose nhắc Location ∉ skeleton∪state), PHASE_LEAK (location/item nhắc trước narr đầu tiên), MISSING_EXTRACTION, SCENE_NO_NARR. Evidence `options:[{value,ids}]` → nút "Giữ giá trị này" (fact→REJECTED / xoá state) + nút "AI sửa" (POST `/scenes/{id}/ai-fix` → preview textarea → PATCH prose, auto-snapshot scene_versions)
+- **AI soi chương**: `POST /chapters/{id}/deep-check` task `review` → JSON issues; bảng `audit_findings` (migration 0025) + GET/DELETE; UI `ChapterDeepCheck` trên trang Review (dropdown chương, progress, findings persist)
+
 - Skeleton AI: nút `AI gợi ý` trong `SceneEditor` (Ghi chú xương cảnh), confirm trước khi ghi đè, autosave, KHÔNG qua Review/Canon — đúng "skeleton là nháp"
 - Timeline: resolve UUID→tên, dịch `key=value` qua `frontend/lib/stateText.ts` (6 kiểu machine-string → VI/EN), gom `<details>` theo thực thể mặc định đóng + preview trạng thái mới nhất, `ListFilter` tự mở nhóm khi lọc, form thêm sự kiện gập lại
 - Continuity check: knowledge-leak mới chỉ flag khi knower=POV hoặc có mặt trong văn + fact được nhắc; 167→18 điểm trên seed

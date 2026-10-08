@@ -1,9 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { kindLabel, severityLabel, payloadText } from "../lib/labels";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
+import { postJSON, patchJSON, delJSON } from "../lib/api";
 
 const storeKey = (pid: string) => `writer:dismissed:${pid}`;
 const fp = (i: any) => `${i.code}:${JSON.stringify(i.evidence ?? {})}`;
@@ -31,9 +34,62 @@ export default function ReviewIssues({
   projectId: string;
 }) {
   const lang = useLang();
+  const router = useRouter();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [fq, setFq] = useState("");
+  const [resolving, setResolving] = useState("");
+  const [fixing, setFixing] = useState("");
+  const [fixElapsed, setFixElapsed] = useState(0);
+  const [preview, setPreview] = useState<{ sceneId: string; fp: string; text: string } | null>(null);
+  const abort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!fixing) return;
+    const iv = setInterval(() => setFixElapsed((s) => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, [fixing]);
+
+  async function keepValue(i: any, opt: { value: string; ids: string[] }) {
+    setResolving(i._fp);
+    try {
+      if (i.code === "CANON_CONFLICT") {
+        const losers = (i.evidence.options as any[])
+          .filter((o) => o.value !== opt.value)
+          .flatMap((o) => o.ids as string[]);
+        for (const id of losers)
+          await patchJSON(`/api/v1/projects/${projectId}/canon-facts/${id}`, { truth_status: "REJECTED" });
+      } else if (i.code === "STATE_CONFLICT") {
+        const losers = (i.evidence.options as any[])
+          .filter((o) => o.value !== opt.value)
+          .flatMap((o) => o.ids as string[]);
+        for (const id of losers)
+          await delJSON(`/api/v1/projects/${projectId}/story-states/${id}`);
+      }
+      router.refresh();
+    } finally { setResolving(""); }
+  }
+
+  async function aiFix(i: any) {
+    const sceneId = i.evidence?.scene_id;
+    if (!sceneId || fixing) return;
+    setFixing(i._fp); setFixElapsed(0);
+    abort.current = new AbortController();
+    try {
+      const r: any = await postJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}/ai-fix`,
+        { issue: i.message }, abort.current.signal);
+      setPreview({ sceneId, fp: i._fp, text: r.revised ?? "" });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") alert(e?.message ?? t(lang, "Lỗi gọi AI"));
+    } finally { setFixing(""); }
+  }
+
+  async function applyFix() {
+    if (!preview) return;
+    await patchJSON(`/api/v1/projects/${projectId}/scenes/${preview.sceneId}`, { prose: preview.text });
+    setPreview(null);
+    router.refresh();
+  }
 
   useEffect(() => {
     try {
@@ -87,13 +143,34 @@ export default function ReviewIssues({
               </header>
               <p>{i.message}</p>
               {i.evidence && <p className="subtle">{payloadText(i.evidence, lang)}</p>}
-              {issueLinks(projectId, i.evidence).length > 0 && (
-                <div className="issue-actions">
-                  {issueLinks(projectId, i.evidence).map((l) => (
-                    <Link key={l.href + l.label} href={l.href} className="issue-link">{t(lang, l.label)}</Link>
+              {Array.isArray(i.evidence?.options) && (
+                <div className="issue-actions" style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                  <span className="subtle">{t(lang, "Chọn giá trị đúng:")}</span>
+                  {(i.evidence.options as any[]).map((o, k) => (
+                    <button key={k} className="btn ghost small" disabled={resolving === i._fp}
+                      onClick={() => keepValue(i, o)} title={t(lang, "Các bản còn lại sẽ bị đánh dấu bác bỏ")}>
+                      {resolving === i._fp ? "…" : `✓ ${String(o.value).slice(0, 60)}`}
+                    </button>
                   ))}
                 </div>
               )}
+              <div className="issue-actions">
+                {issueLinks(projectId, i.evidence).map((l) => (
+                  <Link key={l.href + l.label} href={l.href} className="issue-link">{t(lang, l.label)}</Link>
+                ))}
+                {i.evidence?.scene_id && (
+                  <button className="btn ghost small" disabled={!!fixing} onClick={() => aiFix(i)}>
+                    {fixing === i._fp
+                      ? t(lang, "AI đang sửa… {s}s", { s: fixElapsed })
+                      : t(lang, "AI sửa cảnh này")}
+                  </button>
+                )}
+                {fixing === i._fp && (
+                  <button className="btn ghost small" onClick={() => abort.current?.abort()}>
+                    {t(lang, "Hủy")}
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -103,6 +180,27 @@ export default function ReviewIssues({
           </p>
         )}
       </div>
+
+      {preview && createPortal(
+        <div className="project-modal open" role="dialog" aria-modal="true" onClick={() => setPreview(null)}>
+          <div className="project-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
+            <div className="project-dialog-head">
+              <div><h2>{t(lang, "Bản AI sửa — kiểm trước khi áp dụng")}</h2>
+              <p>{t(lang, "Bản cũ tự lưu trong Lịch sử cảnh, khôi phục được")}</p></div>
+              <button className="project-close" onClick={() => setPreview(null)}>×</button>
+            </div>
+            <div className="project-content">
+              <textarea className="input" style={{ width: "100%", minHeight: 320, fontFamily: "inherit" }}
+                value={preview.text} onChange={(e) => setPreview({ ...preview, text: e.target.value })} />
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="btn primary" onClick={applyFix}>{t(lang, "Áp dụng")}</button>
+                <button className="btn ghost" onClick={() => setPreview(null)}>{t(lang, "Bỏ")}</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }

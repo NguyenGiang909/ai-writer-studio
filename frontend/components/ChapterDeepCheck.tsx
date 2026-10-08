@@ -1,0 +1,192 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { API, delJSON, getJSON, postJSON, patchJSON } from "../lib/api";
+import { severityLabel } from "../lib/labels";
+import { t } from "../lib/i18n";
+import { useLang } from "../lib/use-lang";
+
+type Finding = {
+  id: string; scope_id: string; chapter_title?: string | null;
+  chapter_order?: number | null; created_at: string;
+  issues: { code: string; severity: string; message: string; suggestion?: string; scene_id?: string | null }[];
+};
+
+export default function ChapterDeepCheck({
+  projectId, chapters,
+}: {
+  projectId: string;
+  chapters: { id: string; title: string; order_index: number }[];
+}) {
+  const lang = useLang();
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [chid, setChid] = useState(chapters[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [err, setErr] = useState("");
+  const abort = useRef<AbortController | null>(null);
+  const [fixing, setFixing] = useState("");
+  const [fixElapsed, setFixElapsed] = useState(0);
+  const [preview, setPreview] = useState<{ sceneId: string; text: string } | null>(null);
+  const fixAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!fixing) return;
+    const iv = setInterval(() => setFixElapsed((s) => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, [fixing]);
+
+  async function aiFix(issue: { message: string; scene_id?: string | null }, key: string) {
+    if (!issue.scene_id || fixing) return;
+    setFixing(key); setFixElapsed(0);
+    fixAbort.current = new AbortController();
+    try {
+      const r: any = await postJSON(
+        `/api/v1/projects/${projectId}/scenes/${issue.scene_id}/ai-fix`,
+        { issue: issue.message }, fixAbort.current.signal);
+      setPreview({ sceneId: issue.scene_id, text: r.revised ?? "" });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") setErr(e?.message ?? t(lang, "Lỗi gọi AI"));
+    } finally { setFixing(""); }
+  }
+
+  async function applyFix() {
+    if (!preview) return;
+    await patchJSON(`/api/v1/projects/${projectId}/scenes/${preview.sceneId}`, { prose: preview.text });
+    setPreview(null);
+  }
+
+  async function reload() {
+    try {
+      const r = await getJSON(`/api/v1/projects/${projectId}/audit/findings`);
+      setFindings(r.findings ?? []);
+    } catch {}
+  }
+  useEffect(() => { reload(); }, [projectId]);
+
+  useEffect(() => {
+    if (!busy) return;
+    const iv = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, [busy]);
+
+  async function run() {
+    if (!chid || busy) return;
+    setBusy(true); setErr(""); setElapsed(0);
+    abort.current = new AbortController();
+    try {
+      await postJSON(`/api/v1/projects/${projectId}/chapters/${chid}/deep-check`, {},
+        abort.current.signal);
+      await reload();
+    } catch (e: any) {
+      if (e?.name !== "AbortError") setErr(e?.message ?? t(lang, "Lỗi không xác định"));
+    } finally { setBusy(false); }
+  }
+
+  async function remove(id: string) {
+    try { await delJSON(`/api/v1/audit/findings/${id}`); await reload(); } catch {}
+  }
+
+  return (
+    <div className="card">
+      <h3>{t(lang, "AI soi chương (sâu)")}</h3>
+      <p className="subtle">
+        {t(lang, "Model đọc cả chương để bắt lỗi nghĩa mà dò tự động không thấy: sự kiện trùng, câu tự phủ nhận, văn lệch dàn ý. Mỗi lần soi tốn ~1 phút API.")}
+      </p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="input" value={chid} onChange={(e) => setChid(e.target.value)}
+          disabled={busy} style={{ minWidth: 240 }}>
+          {chapters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {t(lang, "Chương {n}", { n: c.order_index })} — {c.title}
+            </option>
+          ))}
+        </select>
+        {!busy ? (
+          <button className="btn primary" onClick={run} disabled={!chid}>
+            {t(lang, "Soi chương này")}
+          </button>
+        ) : (
+          <>
+            <span className="subtle">{t(lang, "Đang soi… {s}s", { s: elapsed })}</span>
+            <button className="btn ghost" onClick={() => abort.current?.abort()}>
+              {t(lang, "Hủy")}
+            </button>
+          </>
+        )}
+      </div>
+      {err && <p style={{ color: "var(--red)" }}>{err}</p>}
+
+      <div className="review-list" style={{ marginTop: 12 }}>
+        {findings.map((f) => (
+          <div key={f.id} className="review-item">
+            <header>
+              <span>
+                <b>{t(lang, "Chương {n}", { n: f.chapter_order ?? "?" })}</b>
+                {f.chapter_title ? ` — ${f.chapter_title}` : ""}
+                <span className="subtle"> · {(f.created_at ?? "").slice(0, 16).replace("T", " ")}</span>
+              </span>
+              <button className="btn ghost small" onClick={() => remove(f.id)}>
+                {t(lang, "Xoá")}
+              </button>
+            </header>
+            {!f.issues.length && <p className="subtle">{t(lang, "Không phát hiện lỗi nào.")}</p>}
+            {f.issues.map((i, k) => {
+              const sev = severityLabel(i.severity, lang);
+              return (
+                <div key={k} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
+                  <span className={`pill${sev.warn ? " warn" : ""}`}>{sev.label}</span>{" "}
+                  <span>{i.message}</span>
+                  {i.suggestion && <p className="subtle" style={{ marginTop: 2 }}>→ {i.suggestion}</p>}
+                  {i.scene_id && (
+                    <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                      <Link href={`/projects/${projectId}?scene=${i.scene_id}`} className="issue-link">
+                        → {t(lang, "Mở cảnh")}
+                      </Link>
+                      <button className="btn ghost small" disabled={!!fixing}
+                        onClick={() => aiFix(i, `${f.id}:${k}`)}>
+                        {fixing === `${f.id}:${k}`
+                          ? t(lang, "AI đang sửa… {s}s", { s: fixElapsed })
+                          : t(lang, "AI sửa cảnh này")}
+                      </button>
+                      {fixing === `${f.id}:${k}` && (
+                        <button className="btn ghost small" onClick={() => fixAbort.current?.abort()}>
+                          {t(lang, "Hủy")}
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {!findings.length && (
+          <p className="subtle">{t(lang, "Chưa soi chương nào. Chọn chương rồi bấm Soi.")}</p>
+        )}
+      </div>
+
+      {preview && createPortal(
+        <div className="project-modal open" role="dialog" aria-modal="true" onClick={() => setPreview(null)}>
+          <div className="project-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
+            <div className="project-dialog-head">
+              <div><h2>{t(lang, "Bản AI sửa — kiểm trước khi áp dụng")}</h2>
+              <p>{t(lang, "Bản cũ tự lưu trong Lịch sử cảnh, khôi phục được")}</p></div>
+              <button className="project-close" onClick={() => setPreview(null)}>×</button>
+            </div>
+            <div className="project-content">
+              <textarea className="input" style={{ width: "100%", minHeight: 320, fontFamily: "inherit" }}
+                value={preview.text} onChange={(e) => setPreview({ ...preview, text: e.target.value })} />
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="btn primary" onClick={applyFix}>{t(lang, "Áp dụng")}</button>
+                <button className="btn ghost" onClick={() => setPreview(null)}>{t(lang, "Bỏ")}</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}

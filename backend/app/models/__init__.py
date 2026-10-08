@@ -14,7 +14,7 @@ from app.models.truth import CanonFact, AuthorDecision, StoryEvent, StoryState, 
 
 from app.models.narrative import Thread, ThreadBeat, ThreadDependency
 from app.models.discussion import DiscussionThread, DiscussionMessage, StylePreference
-from app.models.review import SuggestedChange
+from app.models.review import SuggestedChange, AuditFinding
 from app.models.memory import StorySummary, RetconProposal, AiTurn
 from app.models.account import ProviderCredential, ModelPreference, StoryBranch, BranchChange, UsageLog
 from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
