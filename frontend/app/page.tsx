@@ -43,8 +43,11 @@ export default async function Home() {
         <span className="crumb" style={{ fontSize: 13 }}>
           Writer-first Story OS
         </span>
-        <Link href="/settings" className="account-shortcut" style={{ textDecoration: "none", marginLeft: "auto" }}>
-          {t(lang, "Tài khoản & API")}
+        <Link href="/account" className="account-shortcut" style={{ textDecoration: "none", marginLeft: "auto" }}>
+          {t(lang, "Tài khoản")}
+        </Link>
+        <Link href="/settings" className="account-shortcut" style={{ textDecoration: "none" }}>
+          ⚙ {t(lang, "Cài đặt")}
         </Link>
         <LangToggle />
         <ThemeToggle />
