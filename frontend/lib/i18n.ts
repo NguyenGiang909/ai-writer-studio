@@ -988,4 +988,18 @@ const EN: Record<string, string> = {
   "Chọn để AI đưa đúng người/hố/năng lực vào ngữ cảnh khi viết":
     "Pick so AI brings the right people/threads/abilities into context when writing",
   "Lọc tên…": "Filter names…",
+  "Bảng chương": "Chapter console",
+  "Nhật ký": "Activity log",
+  "đã chọn": "selected",
+  "Chưa có hoạt động AI trong chương": "No AI activity in this chapter yet",
+  "Viết chương": "Write chapter",
+  "Sửa đoạn": "Revise passage",
+  "AI sửa cảnh": "AI scene fix",
+  "Trích dữ kiện": "Extract facts",
+  "Trích chương": "Extract chapter",
+  "Dàn ý chương": "Outline chapter",
+  "Soi chương": "Deep-check chapter",
+  "Soi khoảng": "Deep-check range",
+  "Hồ sơ nhân vật": "Character profile",
+  "Mở rộng cảnh": "Expand scene",
 };
