@@ -282,7 +282,16 @@ export default function SceneEditor({
           )}
         </div>
       </div>
-      <article className="editor-wrap">
+      <div className="editor-shell">
+        <ChapterCastPanel
+          variant="rail"
+          projectId={projectId}
+          chapter={chapter ?? null}
+          characters={characters}
+          threads={threads}
+          abilities={abilities}
+        />
+        <article className="editor-wrap">
         <input
           className="scene-title-input chapter-title"
           value={title}
@@ -290,6 +299,7 @@ export default function SceneEditor({
           placeholder={t(lang, "Tiêu đề cảnh")}
         />
         <ChapterCastPanel
+          variant="inline"
           projectId={projectId}
           chapter={chapter ?? null}
           characters={characters}
@@ -456,6 +466,8 @@ export default function SceneEditor({
           </nav>
         )}
       </article>
+        <div className="editor-side-r" aria-hidden="true" />
+      </div>
       {showHistory && (
         <SceneHistory
           projectId={projectId}

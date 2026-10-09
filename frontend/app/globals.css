@@ -93,15 +93,19 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .grid>*{min-width:0}
 .list-row .subtle,.thread small,.review-item .subtle{display:block;overflow:hidden}
 
-/* dàn vai — rail bám lề trái vùng viết khi màn đủ rộng (margin-note);
-   màn hẹp rơi về block inline kiểu skeleton ngay dưới status-strip */
+/* vùng viết = 3 cột grid: lề trái (dàn vai) | cột văn 790px giữa | lề phải
+   trống dành cho công cụ sau — rail là cột riêng, không đè lên văn */
+.editor-shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,790px) minmax(0,1fr);align-items:start}
+.editor-shell>.editor-wrap{grid-column:2;max-width:none;margin:0}
+.editor-side-r{grid-column:3}
 .cast-rail{display:none}
 .cast-head{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:800;padding:2px 4px 8px}
 .cast-inline{margin:6px 0 18px}
 .cast-inline .cast-counts{margin-left:auto;font-size:11px;color:var(--muted);font-weight:700}
 .cast-inline-body{padding-top:8px}
 @media(min-width:1810px){
-  .cast-rail{display:block;float:left;width:200px;margin-left:-220px;position:sticky;top:80px;
+  .cast-rail{display:block;grid-column:1;justify-self:end;align-self:start;
+    width:208px;margin:44px 18px 0 0;position:sticky;top:80px;
     max-height:calc(100vh - 112px);overflow-y:auto;overflow-x:hidden;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:10px 8px;box-shadow:var(--shadow)}

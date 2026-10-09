@@ -9,13 +9,14 @@ type Cast = { characters: string[]; threads: string[]; abilities: string[] };
 const EMPTY: Cast = { characters: [], threads: [], abilities: [] };
 
 export default function ChapterCastPanel({
-  projectId, chapter, characters, threads, abilities,
+  projectId, chapter, characters, threads, abilities, variant = "rail",
 }: {
   projectId: string;
   chapter: { id: string; order_index: number; cast_json?: string | null } | null;
   characters: { id: string; name: string; role?: string | null }[];
   threads: { id: string; title: string; status?: string }[];
   abilities: { id: string; name: string; ability_type?: string | null }[];
+  variant?: "rail" | "inline";
 }) {
   const lang = useLang();
   const router = useRouter();
@@ -96,23 +97,27 @@ export default function ChapterCastPanel({
   ].filter(Boolean).join(" · ");
 
   if (!chapter) return null;
-  return (
-    <>
-      <aside className="cast-rail" aria-label={t(lang, "Dàn vai")}>
-        <div className="cast-head">{t(lang, "Dàn vai")} · CH.{chapter.order_index}</div>
-        {(characters.length > 12 || openThreads.length + abilities.length > 12) && (
-          <input className="cast-filter" placeholder={t(lang, "Lọc tên…")}
-                 value={q} onChange={(e) => setQ(e.target.value)} />
-        )}
-        {groups}
-      </aside>
+  const filter = (characters.length > 12 || openThreads.length + abilities.length > 12) && (
+    <input className="cast-filter" placeholder={t(lang, "Lọc tên…")}
+           value={q} onChange={(e) => setQ(e.target.value)} />
+  );
+  if (variant === "inline") {
+    return (
       <details className="skeleton cast-inline">
         <summary>
-          <span className="skel-title">{t(lang, "Dàn vai")}</span>
+          <span className="skel-title">{t(lang, "Dàn vai")} · CH.{chapter.order_index}</span>
           {counts && <span className="cast-counts">{counts}</span>}
         </summary>
-        <div className="cast-inline-body">{groups}</div>
+        <div className="cast-inline-body">{filter}{groups}</div>
       </details>
-    </>
+    );
+  }
+  return (
+    <aside className="cast-rail" aria-label={t(lang, "Dàn vai")}>
+      <div className="cast-head">{t(lang, "Dàn vai")} · CH.{chapter.order_index}</div>
+      {filter}
+      {groups}
+      <p className="cast-hint">{t(lang, "Chọn để AI đưa đúng người/hố/năng lực vào ngữ cảnh khi viết")}</p>
+    </aside>
   );
 }
