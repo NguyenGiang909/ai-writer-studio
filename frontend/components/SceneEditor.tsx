@@ -287,6 +287,7 @@ export default function SceneEditor({
           variant="rail"
           projectId={projectId}
           chapter={chapter ?? null}
+          sceneId={scene.id}
           characters={characters}
           threads={threads}
           abilities={abilities}
@@ -302,6 +303,7 @@ export default function SceneEditor({
           variant="inline"
           projectId={projectId}
           chapter={chapter ?? null}
+          sceneId={scene.id}
           characters={characters}
           threads={threads}
           abilities={abilities}

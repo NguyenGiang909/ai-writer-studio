@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getJSON, patchJSON } from "../lib/api";
 import { t } from "../lib/i18n";
@@ -25,15 +26,17 @@ function hhmm(iso?: string) {
 }
 
 export default function ChapterCastPanel({
-  projectId, chapter, characters, threads, abilities, variant = "rail",
+  projectId, chapter, characters, threads, abilities, variant = "rail", sceneId,
 }: {
   projectId: string;
   chapter: { id: string; order_index: number; cast_json?: string | null;
-             scenes?: { id: string; title?: string | null }[] } | null;
+             scenes?: { id: string; title?: string | null; order_index?: number;
+                        prose?: string | null }[] } | null;
   characters: { id: string; name: string; role?: string | null }[];
   threads: { id: string; title: string; status?: string }[];
   abilities: { id: string; name: string; ability_type?: string | null }[];
   variant?: "rail" | "inline";
+  sceneId?: string;
 }) {
   const lang = useLang();
   const router = useRouter();
@@ -48,14 +51,20 @@ export default function ChapterCastPanel({
     } catch { return EMPTY; }
   }, [chapter?.cast_json]);
 
-  // nhật ký hoạt động của chương — scope_id ∈ scene ids của chương ∪ chính chapter
+  // nhật ký: turn của chương trước, chương rỗng/ít thì lấp bằng hoạt động project
   useEffect(() => {
     if (!chapter) return;
     const scopeIds = new Set([chapter.id, ...(chapter.scenes ?? []).map((s) => s.id)]);
     let dead = false;
     const pull = () =>
       getJSON(`/api/v1/projects/${projectId}/ai/turns?limit=60`)
-        .then((d) => { if (!dead) setTurns((d.turns ?? []).filter((x: Turn) => scopeIds.has(x.scope_id)).slice(0, 16)); })
+        .then((d) => {
+          if (dead) return;
+          const all: Turn[] = d.turns ?? [];
+          const own = all.filter((x) => scopeIds.has(x.scope_id));
+          const rest = all.filter((x) => !scopeIds.has(x.scope_id));
+          setTurns([...own, ...rest].slice(0, 16));
+        })
         .catch(() => {});
     pull();
     const iv = setInterval(pull, 20000);
@@ -142,6 +151,25 @@ export default function ChapterCastPanel({
           {!abilities.length && <p className="subtle">{t(lang, "Chưa có năng lực — tạo ở mục Năng lực")}</p>}
         </details>
       </section>
+      {(chapter.scenes?.length ?? 0) > 0 && (
+        <section className="console-sec">
+          <div className="console-label">{t(lang, "Cảnh")}</div>
+          <div className="sc-list">
+            {chapter.scenes!.map((s, i) => {
+              const words = s.prose ? s.prose.trim().split(/\s+/).filter(Boolean).length : 0;
+              return (
+                <Link key={s.id} href={`/projects/${projectId}?scene=${s.id}`}
+                      className={"sc-mini" + (s.id === sceneId ? " on" : "")}
+                      title={s.title ?? ""}>
+                  <b>{i + 1}</b>
+                  <span className="sc-name">{s.title || t(lang, "Cảnh chưa đặt tên")}</span>
+                  <small>{words ? `${words}từ` : "·"}</small>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <section className="console-sec log">
         <div className="console-label">{t(lang, "Nhật ký")}</div>
         <div className="log-list">

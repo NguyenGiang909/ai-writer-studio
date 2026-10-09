@@ -1002,4 +1002,5 @@ const EN: Record<string, string> = {
   "Soi khoảng": "Deep-check range",
   "Hồ sơ nhân vật": "Character profile",
   "Mở rộng cảnh": "Expand scene",
+  "Cảnh chưa đặt tên": "Untitled scene",
 };
