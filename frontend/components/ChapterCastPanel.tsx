@@ -65,7 +65,7 @@ export default function ChapterCastPanel({
     <>
       <details className="cast-group">
         <summary>
-          <span>♙ {t(lang, "Nhân vật trong chương")}</span>
+          <span>♙ {t(lang, "Nhân vật")}</span>
           <b className="badge-sm">{cast.characters.length || ""}</b>
         </summary>
         {characters.filter((c) => show(c.name) || cast.characters.includes(c.id))

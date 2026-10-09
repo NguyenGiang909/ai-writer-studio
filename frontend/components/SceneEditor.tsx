@@ -289,6 +289,13 @@ export default function SceneEditor({
           onChange={(e) => { setTitle(e.target.value); queueSave({ title: e.target.value }); }}
           placeholder={t(lang, "Tiêu đề cảnh")}
         />
+        <ChapterCastPanel
+          projectId={projectId}
+          chapter={chapter ?? null}
+          characters={characters}
+          threads={threads}
+          abilities={abilities}
+        />
         <div className="status-strip">
           <span className="pill draft">{t(lang, "Bản nháp của tác giả")}</span>
           <label className="pill" style={{ gap: 6 }}>
@@ -350,13 +357,6 @@ export default function SceneEditor({
             </label>
           )}
         </div>
-        <ChapterCastPanel
-          projectId={projectId}
-          chapter={chapter ?? null}
-          characters={characters}
-          threads={threads}
-          abilities={abilities}
-        />
         <details className="skeleton" open>
           <summary>
             <span className="skel-title">{t(lang, "Ghi chú xương cảnh")}</span>
