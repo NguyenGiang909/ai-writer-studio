@@ -47,12 +47,14 @@ function renderContent(content: string) {
     if (tb) {
       flush();
       out.push(
-        <table key={`m${i}`} className="chat-md-table">
-          <thead><tr>{tb.head.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
-          <tbody>
-            {tb.rows.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}
-          </tbody>
-        </table>
+        <div key={`m${i}`} className="chat-md-wrap">
+          <table className="chat-md-table">
+            <thead><tr>{tb.head.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
+            <tbody>
+              {tb.rows.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}
+            </tbody>
+          </table>
+        </div>
       );
       i = tb.next;
     } else { buf.push(lines[i]); i++; }
