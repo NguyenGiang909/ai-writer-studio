@@ -22,15 +22,24 @@ async def add(db,obj):
 # ---- Provider credentials (BYOK) ----
 @router.post("/account/credentials")
 async def connect_provider(p:CredentialCreate,db:AsyncSession=Depends(get_db)):
+    tier = p.tier if p.tier in ("low","standard","strong") else None
     obj=ProviderCredential(user_id=DEV_USER,provider=p.provider,
         encrypted_secret=encrypt_secret(p.secret),key_hint=key_hint(p.secret),status="connected",
-        base_url=(p.base_url or "").strip() or None)
+        base_url=(p.base_url or "").strip() or None,tier=tier)
     await add(db,obj)
-    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url)}
+    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url,obj.tier)}
 @router.get("/account/credentials")
 async def list_credentials(db:AsyncSession=Depends(get_db)):
     rows=(await db.scalars(select(ProviderCredential).where(ProviderCredential.user_id==DEV_USER))).all()
-    return [{"id":c.id,**public_credential_view(c.provider,c.key_hint,c.status,c.base_url)} for c in rows]
+    return [{"id":c.id,**public_credential_view(c.provider,c.key_hint,c.status,c.base_url,c.tier)} for c in rows]
+@router.patch("/account/credentials/{cid}")
+async def patch_credential(cid:str,p:CredentialPatch,db:AsyncSession=Depends(get_db)):
+    obj=await db.get(ProviderCredential,cid)
+    if not obj or obj.user_id!=DEV_USER: raise HTTPException(404,"credential not found")
+    if p.tier is not None and p.tier not in ("low","standard","strong"):
+        raise HTTPException(400,"tier phải là low | standard | strong")
+    obj.tier=p.tier; await db.commit(); await db.refresh(obj)
+    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url,obj.tier)}
 _TEST_MODELS={"openai":"gpt-4o-mini","anthropic":"claude-haiku-4-5-20251001","gemini":"gemini-2.0-flash",
     "openrouter":"openai/gpt-4o-mini","deepseek":"deepseek-chat","kiraai":"deepseek-v4.1-flash"}
 @router.post("/account/credentials/{cid}/test")
@@ -54,7 +63,7 @@ async def disconnect_provider(cid:str,db:AsyncSession=Depends(get_db)):
     obj=await db.get(ProviderCredential,cid)
     if not obj: raise HTTPException(404,"credential not found")
     obj.status="revoked"; await db.commit()
-    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url)}
+    return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url,obj.tier)}
 
 # ---- Model preferences ----
 @router.post("/account/model-preferences")

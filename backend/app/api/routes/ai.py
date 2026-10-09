@@ -549,14 +549,14 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
 
     # Scene dài chia thành windows tại ranh đoạn — bản cũ cắt [:3500]
     # khiến đuôi chương (chỗ lỗi hay nằm) không được soi. Ngưỡng adapt theo
-    # provider: gateway yếu (kiraai 60s cap) → window nhỏ; API xịn context
-    # lớn → gần như không chia (model thấy trọn chương, bắt được lỗi
-    # mâu thuẫn xuyên-cảnh tốt hơn).
+    # tier năng lực của credential (đặt/auto ở trang Kết nối API):
+    # low: gateway ~60s cap → window nhỏ; strong: gần như không chia — model
+    # thấy trọn chương, bắt được lỗi mâu thuẫn xuyên-cảnh tốt hơn.
     router = ModelRouter(db)
     _prov = await router.provider_name("review", pid)
-    WEAK_GATEWAY = {"kiraai"}
-    win_len = 4500 if _prov in WEAK_GATEWAY else 40000
-    grp_len = 6500 if _prov in WEAK_GATEWAY else 45000
+    _tier = await router.provider_tier("review", pid)
+    win_len = {"low": 4500, "standard": 12000}.get(_tier, 40000)
+    grp_len = {"low": 6500, "standard": 16000}.get(_tier, 45000)
 
     def _windows(text: str, max_len: int) -> list:
         paras = text.split("\n\n")
@@ -644,7 +644,8 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
                   provider=provider, model=model))
     await db.commit()
     out = {"finding_id": f.id, "issues": found, "count": len(found),
-           "provider": provider, "model": model, "calls": len(prompts)}
+           "provider": provider or _prov, "model": model, "calls": len(prompts),
+           "tier": _tier}
     if skipped:
         out["skipped_windows"] = skipped
     return out

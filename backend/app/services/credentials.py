@@ -19,7 +19,10 @@ def decrypt_secret(encrypted: str) -> str:
 def key_hint(secret: str) -> str:
     return "••••" + secret[-4:] if len(secret) >= 4 else "••••"
 
-def public_credential_view(provider,key_hint,status="connected",base_url=None):
-    return {"provider":provider,"key_hint":key_hint,"status":status,"secret":None,"base_url":base_url}
+def public_credential_view(provider,key_hint,status="connected",base_url=None,tier=None):
+    from app.ai.providers import provider_tier
+    return {"provider":provider,"key_hint":key_hint,"status":status,"secret":None,
+            "base_url":base_url,"tier":provider_tier(provider,tier),
+            "tier_override":tier}
 def resolve_model(task,task_override=None,project_override=None,account_default=None,system_fallback=None):
     return task_override or project_override or account_default or system_fallback

@@ -401,6 +401,19 @@ const EN: Record<string, string> = {
   "Nhà cung cấp": "Provider",
   "Base URL (tuỳ chọn)": "Base URL (optional)",
   "vd http://localhost:1234/v1 — chỉ cần cho custom/LM Studio": "e.g. http://localhost:1234/v1 — only needed for custom/LM Studio",
+  "Năng lực API": "API capability",
+  "Năng lực API (Yếu/Thường/Mạnh) quyết định app có chia nhỏ request không — gateway yếu sẽ được gửi prompt ngắn; không liên quan chất lượng văn.":
+    "API capability (Weak/Standard/Strong) decides whether the app splits requests — weak gateways get short prompts; unrelated to prose quality.",
+  "Năng lực API: ảnh hưởng cách app chia nhỏ request — không phải chất lượng văn":
+    "API capability: affects how the app splits requests — not prose quality",
+  "Tự động": "Auto",
+  "Tự động theo nhà cung cấp": "Auto from provider",
+  "Yếu": "Weak",
+  "Thường": "Standard",
+  "Mạnh": "Strong",
+  "Yếu — gateway chậm/giới hạn request dài": "Weak — slow gateway / long-request limit",
+  "Thường — endpoint tự host, chưa rõ giới hạn": "Standard — self-hosted endpoint, limits unknown",
+  "Mạnh — context lớn, gửi trọn chương được": "Strong — large context, whole-chapter prompts OK",
   "Định tuyến model": "Model routing",
   "Ưu tiên: tác vụ → dự án → tài khoản → mặc định hệ thống.":
     "Priority: task → project → account → system default.",

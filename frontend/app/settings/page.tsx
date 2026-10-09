@@ -4,6 +4,7 @@ import PostForm from "../../components/PostForm";
 import ActionButton from "../../components/ActionButton";
 import ThemeToggle from "../../components/ThemeToggle";
 import LangToggle from "../../components/LangToggle";
+import TierSelect from "../../components/TierSelect";
 import { getLang } from "../../lib/lang-server";
 import { t } from "../../lib/i18n";
 
@@ -48,6 +49,9 @@ export default async function Settings() {
       <div className="settings-grid">
       <section className="card">
         <h3>{t(lang, "Nhà cung cấp AI (BYOK)")}</h3>
+        <p className="subtle">
+          {t(lang, "Năng lực API (Yếu/Thường/Mạnh) quyết định app có chia nhỏ request không — gateway yếu sẽ được gửi prompt ngắn; không liên quan chất lượng văn.")}
+        </p>
         {credentials.map((c: any) => (
           <div key={c.id} className="list-row">
             <b>{c.provider}</b> <code style={{ fontSize: 12 }}>{c.key_hint}</code>{" "}
@@ -55,6 +59,7 @@ export default async function Settings() {
             <small style={{ color: c.status === "connected" ? "#559d78" : "var(--red)" }}>
               {c.status === "connected" ? t(lang, "Đã kết nối") : c.status === "error" ? t(lang, "Lỗi") : c.status}
             </small>
+            <TierSelect id={c.id} tier={c.tier ?? "standard"} override={c.tier_override ?? null} />
             <span style={{ marginLeft: 8 }}>
               <ActionButton endpoint={`/api/v1/account/credentials/${c.id}/test`} label={t(lang, "Kiểm tra")} />
             </span>
@@ -70,6 +75,12 @@ export default async function Settings() {
           { name: "provider", label: t(lang, "Nhà cung cấp"), type: "select", options: PROVIDERS.map((p) => ({ value: p, label: p })) },
           { name: "secret", label: "API key", required: true, placeholder: "sk-…" },
           { name: "base_url", label: t(lang, "Base URL (tuỳ chọn)"), placeholder: "vd http://localhost:1234/v1 — chỉ cần cho custom/LM Studio" },
+          { name: "tier", label: t(lang, "Năng lực API"), type: "select", defaultValue: "auto", options: [
+            { value: "auto", label: t(lang, "Tự động theo nhà cung cấp") },
+            { value: "low", label: t(lang, "Yếu — gateway chậm/giới hạn request dài") },
+            { value: "standard", label: t(lang, "Thường — endpoint tự host, chưa rõ giới hạn") },
+            { value: "strong", label: t(lang, "Mạnh — context lớn, gửi trọn chương được") },
+          ] },
         ]} />
       </section>
 

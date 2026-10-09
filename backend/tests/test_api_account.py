@@ -20,6 +20,29 @@ async def test_credential_never_returns_secret(client):
     assert d["status"]=="revoked"
 
 @pytest.mark.asyncio
+async def test_credential_tier_auto_and_override(client):
+    # auto: provider map quyết tier (kiraai=low, openai=strong, custom=standard)
+    k=(await client.post("/api/v1/account/credentials",json={
+        "provider":"kiraai","secret":"sk-k1"})).json()
+    assert k["tier"]=="low" and k["tier_override"] is None
+    o=(await client.post("/api/v1/account/credentials",json={
+        "provider":"openai","secret":"sk-o1"})).json()
+    assert o["tier"]=="strong"
+    c=(await client.post("/api/v1/account/credentials",json={
+        "provider":"custom","secret":"sk-c1","tier":"strong"})).json()
+    assert c["tier"]=="strong" and c["tier_override"]=="strong"
+    # override qua PATCH; tier=null → về auto
+    p=(await client.patch(f"/api/v1/account/credentials/{k['id']}",json={"tier":"strong"})).json()
+    assert p["tier"]=="strong" and p["tier_override"]=="strong"
+    p=(await client.patch(f"/api/v1/account/credentials/{k['id']}",json={"tier":None})).json()
+    assert p["tier"]=="low" and p["tier_override"] is None
+    bad=await client.patch(f"/api/v1/account/credentials/{k['id']}",json={"tier":"mega"})
+    assert bad.status_code==400
+    # list trả tier
+    lst=(await client.get("/api/v1/account/credentials")).json()
+    assert all("tier" in x for x in lst)
+
+@pytest.mark.asyncio
 async def test_model_preference_resolution(client,proj):
     pid=proj["project"]["id"]
     await client.post("/api/v1/account/model-preferences",json={

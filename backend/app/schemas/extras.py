@@ -71,6 +71,9 @@ class RetconCreate(BaseModel):
 class CredentialCreate(BaseModel):
     provider:str=Field(min_length=1,max_length=32); secret:str=Field(min_length=1)
     base_url:str|None=Field(default=None,max_length=300)
+    tier:str|None=Field(default=None,max_length=16)
+class CredentialPatch(BaseModel):
+    tier:str|None=Field(default=None,max_length=16)  # None=auto theo provider
 class ModelPreferenceCreate(BaseModel):
     task:str; provider:str; model:str; project_id:str|None=None
 class ModelPreferencePatch(BaseModel):

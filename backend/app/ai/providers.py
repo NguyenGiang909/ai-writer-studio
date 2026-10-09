@@ -131,6 +131,22 @@ PROVIDER_ENDPOINTS = {
     "anthropic": "https://api.anthropic.com",
 }
 
+# Tier năng lực gateway — caller dùng để adapt kích thước prompt.
+# "low": gateway cắt request dài (kiraai ~60s → prompt phải nhỏ, chia window).
+# "standard": local/custom không rõ giới hạn — window vừa.
+# "strong": API lớn context rộng — không chia, model thấy trọn ngữ cảnh.
+PROVIDER_TIERS = {
+    "kiraai": "low",
+    "openai": "strong", "anthropic": "strong", "gemini": "strong",
+    "deepseek": "strong", "openrouter": "strong",
+}
+
+def provider_tier(provider: str, override: str | None = None) -> str:
+    """Tier hiệu lực: credential override > map theo provider > 'standard'."""
+    if override in ("low", "standard", "strong"):
+        return override
+    return PROVIDER_TIERS.get(provider, "standard")
+
 
 class OpenAICompatibleProvider(BaseProvider):
     """POST /chat/completions — works for OpenAI, OpenRouter, LM Studio, etc."""

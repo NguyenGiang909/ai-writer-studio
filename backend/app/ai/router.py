@@ -87,6 +87,20 @@ class ModelRouter:
         pref = await self._preference(ModelRequest(task=task, prompt="", project_id=project_id))
         return pref.provider if pref else None
 
+    async def provider_tier(self, task: str, project_id: str | None = None) -> str:
+        """Tier năng lực của credential phục vụ task ('low'|'standard'|'strong').
+        Đọc override trên credential, fallback map provider, 'standard' nếu không rõ."""
+        from app.ai.providers import provider_tier as _resolve
+        pref = await self._preference(ModelRequest(task=task, prompt="", project_id=project_id))
+        if not pref or self.db is None:
+            return "standard"
+        cred = (await self.db.scalars(select(ProviderCredential).where(
+            ProviderCredential.user_id == DEV_USER,
+            ProviderCredential.provider == pref.provider,
+            ProviderCredential.status == "connected",
+        ))).first()
+        return _resolve(pref.provider, cred.tier if cred else None)
+
     async def _provider_for(self, request: ModelRequest):
         pref = await self._preference(request)
         if not pref or self.db is None:
