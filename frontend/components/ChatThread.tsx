@@ -16,12 +16,30 @@ function mdTable(lines: string[], start: number) {
   return { head, rows, next: i };
 }
 
+// inline markdown tối thiểu: **đậm** / *nghiêng* — reply AI hay gửi markdown
+function inlineMd(text: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((seg, i) => {
+    if (seg.startsWith("**") && seg.endsWith("**")) return <strong key={i}>{seg.slice(2, -2)}</strong>;
+    if (seg.startsWith("*") && seg.endsWith("*") && seg.length > 2) return <em key={i}>{seg.slice(1, -1)}</em>;
+    return seg;
+  });
+}
+
 function renderContent(content: string) {
   const lines = content.split("\n");
   const out: React.ReactNode[] = [];
   let buf: string[] = [];
   const flush = () => {
-    if (buf.length) { out.push(<span key={`t${out.length}`}>{buf.join("\n")}</span>); buf = []; }
+    if (buf.length) {
+      out.push(
+        <span key={`t${out.length}`}>
+          {buf.map((l, i) => (
+            <React.Fragment key={i}>{i > 0 && "\n"}{inlineMd(l)}</React.Fragment>
+          ))}
+        </span>
+      );
+      buf = [];
+    }
   };
   let i = 0;
   while (i < lines.length) {

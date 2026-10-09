@@ -83,9 +83,8 @@ export default function RightPanel({
     ? t(lang, 'Cảnh "{t}" — {c}', { t: scene.title ?? t(lang, "(chưa đặt tên)"), c: scene.chapter.title })
     : section?.[1] ? t(lang, section[1]) : t(lang, "tổng quan bản thảo");
 
-  function pick(tab: Tab, label: string) {
+  function pick(tab: Tab) {
     setTab(tab);
-    toast(`${t(lang, label)} ${t(lang, "đã được chọn")}`);
   }
 
   async function suggestSection() {
@@ -119,13 +118,13 @@ export default function RightPanel({
       <div className="right-head">
         <h2>{t(lang, "Trợ lý AI")}</h2>
         <div className="tabs">
-          <button className={`tab${tab === "discuss" ? " active" : ""}`} onClick={() => pick("discuss", "Thảo luận")}>
+          <button className={`tab${tab === "discuss" ? " active" : ""}`} onClick={() => pick("discuss")}>
             {t(lang, "Thảo luận")}
           </button>
-          <button className={`tab${tab === "expand" ? " active" : ""}`} onClick={() => pick("expand", "Mở rộng")}>
+          <button className={`tab${tab === "expand" ? " active" : ""}`} onClick={() => pick("expand")}>
             {t(lang, "Mở rộng")}
           </button>
-          <button className={`tab${tab === "check" ? " active" : ""}`} onClick={() => pick("check", "Kiểm tra")}>
+          <button className={`tab${tab === "check" ? " active" : ""}`} onClick={() => pick("check")}>
             {t(lang, "Kiểm tra")}
           </button>
         </div>
