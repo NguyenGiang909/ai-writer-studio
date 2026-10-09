@@ -548,9 +548,17 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
          + (f" — Hồi \"{arc.title}\"" if arc else "") + " ==="] + blk)
 
     # Scene dài chia thành windows tại ranh đoạn — bản cũ cắt [:3500]
-    # khiến đuôi chương (chỗ lỗi hay nằm) không được soi; mỗi call ~4.5k
-    # cũng giữ prompt dưới ngưỡng gateway 60s.
-    def _windows(text: str, max_len: int = 4500) -> list:
+    # khiến đuôi chương (chỗ lỗi hay nằm) không được soi. Ngưỡng adapt theo
+    # provider: gateway yếu (kiraai 60s cap) → window nhỏ; API xịn context
+    # lớn → gần như không chia (model thấy trọn chương, bắt được lỗi
+    # mâu thuẫn xuyên-cảnh tốt hơn).
+    router = ModelRouter(db)
+    _prov = await router.provider_name("review", pid)
+    WEAK_GATEWAY = {"kiraai"}
+    win_len = 4500 if _prov in WEAK_GATEWAY else 40000
+    grp_len = 6500 if _prov in WEAK_GATEWAY else 45000
+
+    def _windows(text: str, max_len: int) -> list:
         paras = text.split("\n\n")
         out, cur = [], ""
         for p in paras:
@@ -569,21 +577,19 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
         if not prose:
             segs.append(f'--- Cảnh {i+1}: "{sc.title or "?"}"{skel}\n(chưa có văn)')
             continue
-        wins = _windows(prose)
+        wins = _windows(prose, win_len)
         for k, w in enumerate(wins):
             tag = f" [phần {k+1}/{len(wins)}]" if len(wins) > 1 else ""
             segs.append(f'--- Cảnh {i+1}: "{sc.title or "?"}"{tag}{skel}\nVăn:\n{w}')
 
-    # gom segments vào prompts ≤ ~6500c, cap 6 calls/chương
+    # gom segments vào prompts ≤ grp_len, cap 6 calls/chương
     prompts: list[str] = []
     cur, curlen = [hdr], len(hdr)
     for seg in segs:
-        if curlen + len(seg) + 2 > 6500 and len(cur) > 1 and len(prompts) < 5:
+        if curlen + len(seg) + 2 > grp_len and len(cur) > 1 and len(prompts) < 5:
             prompts.append(cur); cur, curlen = [hdr], len(hdr)
         cur.append(seg); curlen += len(seg) + 2
     prompts.append(cur)
-
-    router = ModelRouter(db)
     title2id = {s.title: s.id for s in scs if s.title}
     found: list = []
     seen_msg: set = set()

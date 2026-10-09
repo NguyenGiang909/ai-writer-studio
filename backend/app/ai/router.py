@@ -81,6 +81,12 @@ class ModelRouter:
                 pref = await self._pref_for_task(fb, request.project_id)
         return pref
 
+    async def provider_name(self, task: str, project_id: str | None = None) -> str | None:
+        """Tên provider sẽ phục vụ task này — caller dùng để adapt kích thước
+        prompt (vd deep-check chia window nhỏ cho gateway 60s, API xịn không cần)."""
+        pref = await self._preference(ModelRequest(task=task, prompt="", project_id=project_id))
+        return pref.provider if pref else None
+
     async def _provider_for(self, request: ModelRequest):
         pref = await self._preference(request)
         if not pref or self.db is None:
