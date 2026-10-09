@@ -30,13 +30,12 @@ export default async function ProjectLayout({
   const { projectId } = await params;
   const lang = await getLang();
   const base = `/api/v1/projects/${projectId}`;
-  const [projects, tree, characters, threads, abilities, suggestions, facts, decisions, styles, continuity] =
+  const [projects, tree, characters, threads, suggestions, facts, decisions, styles, continuity] =
     await Promise.all([
       safe("/api/v1/projects"),
       safe(`${base}/manuscript`, { volumes: [], arcs: [], chapters: [] }),
       safe(`${base}/characters`),
       safe(`${base}/threads`),
-      safe(`${base}/abilities`),
       safe(`${base}/suggestions?status=pending`),
       safe(`${base}/canon-facts`),
       safe(`${base}/author-decisions`),
@@ -71,8 +70,6 @@ export default async function ProjectLayout({
           projectId={projectId}
           tree={tree}
           characters={characters}
-          threads={threads}
-          abilities={abilities}
           openThreads={openThreads}
           pendingCount={suggestions.length}
         />

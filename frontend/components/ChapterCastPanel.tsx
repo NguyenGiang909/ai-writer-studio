@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { patchJSON } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
@@ -9,32 +9,25 @@ type Cast = { characters: string[]; threads: string[]; abilities: string[] };
 const EMPTY: Cast = { characters: [], threads: [], abilities: [] };
 
 export default function ChapterCastPanel({
-  projectId, chapters, characters, threads, abilities,
+  projectId, chapter, characters, threads, abilities,
 }: {
   projectId: string;
-  chapters: any[];
+  chapter: { id: string; order_index: number; cast_json?: string | null } | null;
   characters: { id: string; name: string; role?: string | null }[];
   threads: { id: string; title: string; status?: string }[];
   abilities: { id: string; name: string; ability_type?: string | null }[];
 }) {
   const lang = useLang();
   const router = useRouter();
-  const search = useSearchParams();
-  const sceneId = search.get("scene");
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
 
-  const chapter = useMemo(
-    () => chapters.find((c) => (c.scenes ?? []).some((s: any) => s.id === sceneId)) ?? null,
-    [chapters, sceneId]);
   const cast: Cast = useMemo(() => {
     try {
       const c = JSON.parse(chapter?.cast_json ?? "{}");
       return { ...EMPTY, ...(typeof c === "object" && c ? c : {}) };
     } catch { return EMPTY; }
   }, [chapter?.cast_json]);
-
-  if (!chapter) return null; // không ở trang bản thảo / chưa chọn cảnh
 
   const needle = q.trim().toLowerCase();
   const show = (name?: string | null) => !needle || (name ?? "").toLowerCase().includes(needle);
@@ -68,15 +61,8 @@ export default function ChapterCastPanel({
     );
   }
 
-  return (
-    <div className="cast-panel">
-      <div className="section-label">
-        {t(lang, "Dàn vai")} · Ch. {chapter.order_index}
-      </div>
-      {(characters.length > 12 || openThreads.length + abilities.length > 12) && (
-        <input className="cast-filter" placeholder={t(lang, "Lọc tên…")}
-               value={q} onChange={(e) => setQ(e.target.value)} />
-      )}
+  const groups = (
+    <>
       <details className="cast-group">
         <summary>
           <span>♙ {t(lang, "Nhân vật trong chương")}</span>
@@ -100,7 +86,33 @@ export default function ChapterCastPanel({
           .map((a) => row("abilities", a.id, a.name, a.ability_type ?? undefined))}
         {!abilities.length && <p className="subtle">{t(lang, "Chưa có năng lực — tạo ở mục Năng lực")}</p>}
       </details>
-      <p className="cast-hint">{t(lang, "Chọn để AI đưa đúng người/hố/năng lực vào ngữ cảnh khi viết")}</p>
-    </div>
+    </>
+  );
+
+  const counts = [
+    cast.characters.length && `${cast.characters.length}♙`,
+    cast.threads.length && `${cast.threads.length}≋`,
+    cast.abilities.length && `${cast.abilities.length}✦`,
+  ].filter(Boolean).join(" · ");
+
+  if (!chapter) return null;
+  return (
+    <>
+      <aside className="cast-rail" aria-label={t(lang, "Dàn vai")}>
+        <div className="cast-head">{t(lang, "Dàn vai")} · CH.{chapter.order_index}</div>
+        {(characters.length > 12 || openThreads.length + abilities.length > 12) && (
+          <input className="cast-filter" placeholder={t(lang, "Lọc tên…")}
+                 value={q} onChange={(e) => setQ(e.target.value)} />
+        )}
+        {groups}
+      </aside>
+      <details className="skeleton cast-inline">
+        <summary>
+          <span className="skel-title">{t(lang, "Dàn vai")}</span>
+          {counts && <span className="cast-counts">{counts}</span>}
+        </summary>
+        <div className="cast-inline-body">{groups}</div>
+      </details>
+    </>
   );
 }

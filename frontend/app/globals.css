@@ -93,9 +93,20 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .grid>*{min-width:0}
 .list-row .subtle,.thread small,.review-item .subtle{display:block;overflow:hidden}
 
-/* dàn chương — pick nhân vật/hố/năng lực cho chương đang mở; dính đáy sidebar
-   để cây bản thảo dài cũng không đẩy nó khuất tầm nhìn */
-.cast-panel{position:sticky;bottom:0;z-index:2;border-top:1px solid var(--line);margin-top:10px;padding:10px 8px 12px;background:var(--panel);box-shadow:0 -8px 18px -14px #0006}
+/* dàn vai — rail bám lề trái vùng viết khi màn đủ rộng (margin-note);
+   màn hẹp rơi về block inline kiểu skeleton ngay dưới status-strip */
+.cast-rail{display:none}
+.cast-head{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:800;padding:2px 4px 8px}
+.cast-inline{margin:6px 0 18px}
+.cast-inline .cast-counts{margin-left:auto;font-size:11px;color:var(--muted);font-weight:700}
+.cast-inline-body{padding-top:8px}
+@media(min-width:1810px){
+  .cast-rail{display:block;float:left;width:200px;margin-left:-220px;position:sticky;top:80px;
+    max-height:calc(100vh - 112px);overflow-y:auto;overflow-x:hidden;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px 8px;box-shadow:var(--shadow)}
+  .cast-inline{display:none}
+}
 .cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 9px;font-size:12px;outline:none;margin:4px 0 8px}
 .cast-filter:focus{border-color:var(--teal)}
 .cast-group{margin:2px 0 6px}

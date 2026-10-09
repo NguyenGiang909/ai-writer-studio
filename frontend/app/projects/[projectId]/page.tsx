@@ -23,9 +23,11 @@ export default async function Workspace({
   const lang = await getLang();
   const { scene: sceneId } = await searchParams;
   const base = `/api/v1/projects/${projectId}`;
-  const [tree, characters, locations] = await Promise.all([
+  const [tree, characters, threads, abilities, locations] = await Promise.all([
     safe(`${base}/manuscript`, { chapters: [] }),
     safe(`${base}/characters`),
+    safe(`${base}/threads`),
+    safe(`${base}/abilities`),
     safe(`${base}/locations`),
   ]);
 
@@ -48,10 +50,13 @@ export default async function Workspace({
           key={selected.id}
           projectId={projectId}
           scene={selected}
+          chapter={selected.chapter}
           chapterTitle={selected.chapter.title}
           sceneIndex={selected.chapter.scenes.findIndex((s: any) => s.id === selected.id) + 1}
           sceneTotal={selected.chapter.scenes.length}
           characters={characters}
+          threads={threads}
+          abilities={abilities}
           locations={locations}
           reviewHref={`/projects/${projectId}/review`}
           memoryHref={`/projects/${projectId}/memory`}

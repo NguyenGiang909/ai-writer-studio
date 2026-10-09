@@ -7,6 +7,7 @@ import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
 import { toast } from "../lib/toast";
 import SceneHistory from "./SceneHistory";
+import ChapterCastPanel from "./ChapterCastPanel";
 
 const SCENE_TYPES = [
   "mystery", "discovery", "relationship", "intimacy", "daily_life",
@@ -31,10 +32,13 @@ type Scene = {
 export default function SceneEditor({
   projectId,
   scene,
+  chapter,
   chapterTitle,
   sceneIndex,
   sceneTotal,
   characters,
+  threads = [],
+  abilities = [],
   locations = [],
   reviewHref,
   memoryHref,
@@ -43,10 +47,13 @@ export default function SceneEditor({
 }: {
   projectId: string;
   scene: Scene;
+  chapter?: { id: string; order_index: number; cast_json?: string | null } | null;
   chapterTitle: string;
   sceneIndex?: number;
   sceneTotal?: number;
   characters: { id: string; name: string }[];
+  threads?: { id: string; title: string; status?: string }[];
+  abilities?: { id: string; name: string; ability_type?: string | null }[];
   locations?: { id: string; name: string }[];
   reviewHref?: string;
   memoryHref?: string;
@@ -343,6 +350,13 @@ export default function SceneEditor({
             </label>
           )}
         </div>
+        <ChapterCastPanel
+          projectId={projectId}
+          chapter={chapter ?? null}
+          characters={characters}
+          threads={threads}
+          abilities={abilities}
+        />
         <details className="skeleton" open>
           <summary>
             <span className="skel-title">{t(lang, "Ghi chú xương cảnh")}</span>
