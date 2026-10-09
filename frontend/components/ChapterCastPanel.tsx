@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getJSON, patchJSON } from "../lib/api";
@@ -44,8 +43,6 @@ export default function ChapterCastPanel({
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => { setSlot(document.getElementById("console-slot")); }, []);
 
   const cast: Cast = useMemo(() => {
     try {
@@ -207,13 +204,11 @@ export default function ChapterCastPanel({
       </details>
     );
   }
-  if (!slot) return null;
-  return createPortal(
+  return (
     <aside className="cast-rail" aria-label={t(lang, "Bảng chương")}>
       <div className="cast-head">{t(lang, "Bảng chương")} · CH.{chapter.order_index}</div>
       {filter}
       {body}
-    </aside>,
-    slot,
+    </aside>
   );
 }

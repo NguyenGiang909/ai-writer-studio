@@ -103,15 +103,19 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .cast-inline{margin:6px 0 18px}
 .cast-inline .cast-counts{margin-left:auto;font-size:11px;color:var(--muted);font-weight:700}
 .cast-inline-body{padding-top:8px}
-.console-slot{display:contents}   /* wrapper vô hình: aside con là grid item cột 2 */
-/* rail = cột thật của .shell — sticky top:58 hệt .left/.right, không card nổi */
-@media(min-width:1400px){
-  .shell{grid-template-columns:288px auto minmax(450px,1fr) 350px}
-  .shell>.main{grid-column:3}
-  .shell>.right{grid-column:4}
-  .cast-rail{display:flex;flex-direction:column;width:236px;
-    position:sticky;top:58px;height:calc(100vh - 58px);overflow:hidden;
-    background:var(--panel);border-right:1px solid var(--line);padding:12px 10px}
+/* overflow-x:clip vẫn chặn tràn ngang như hidden nhưng KHÔNG tạo scroll-context
+   → sticky bên trong .main bám theo body scroll (trước bị nuốt bởi overflow:auto) */
+.main{overflow:visible clip}
+
+/* console dock trong .editor-shell: cột sát mép trái editor, sticky theo trang */
+@media(min-width:1700px){
+  .editor-shell{grid-template-columns:minmax(0,1fr) 226px minmax(0,790px) minmax(0,1fr)}
+  .editor-shell>.editor-wrap{grid-column:3}
+  .editor-shell>.editor-side-r{grid-column:4}
+  .cast-rail{display:flex;flex-direction:column;grid-column:2;
+    position:sticky;top:72px;height:fit-content;max-height:calc(100vh - 90px);overflow:hidden;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px;box-shadow:var(--shadow)}
   .cast-inline{display:none}
 }
 .cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:5px 8px;font-size:12px;outline:none;margin:0 0 6px;flex:0 0 auto}
