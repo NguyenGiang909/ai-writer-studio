@@ -411,6 +411,17 @@ export default function SceneEditor({
           className="manuscript manuscript-input"
           value={prose}
           onChange={(e) => { setProse(e.target.value); queueSave({ prose: e.target.value }); }}
+          onSelect={(e) => {
+            const el = e.currentTarget;
+            window.dispatchEvent(new CustomEvent("writer:prose-select", {
+              detail: {
+                sceneId: scene.id,
+                start: el.selectionStart,
+                end: el.selectionEnd,
+                text: el.value.slice(el.selectionStart, el.selectionEnd),
+              },
+            }));
+          }}
           placeholder={t(lang, "Bắt đầu viết…")}
           spellCheck={false}
         />

@@ -29,6 +29,8 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   const [sent, setSent] = useState(false);
   const [reviseNotes, setReviseNotes] = useState("");
   const [reviseMode, setReviseMode] = useState(false);
+  const [sel, setSel] = useState<{ start: number; end: number; text: string } | null>(null);
+  const [reviseSel, setReviseSel] = useState<{ start: number; end: number; text: string } | null>(null);
   const [savedBrief, setSavedBrief] = useState(false);
   const [manifest, setManifest] = useState<string[]>([]);
   const [issues, setIssues] = useState<{ code: string; severity: string; message: string }[]>([]);
@@ -47,6 +49,27 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   function cancelAI() {
     abortRef.current?.abort();
   }
+
+  // Bôi đen trong SceneEditor → revision chỉ ăn đoạn chọn (prompt nhỏ,
+  // tránh 60s gateway trên cảnh dài + không đụng phần còn lại).
+  // Đọc cả DOM selection lúc mount/mở block vì user hay bôi đen TRƯỚC khi
+  // mở panel (event đã dispatch trước khi listener tồn tại).
+  function readDomSelection() {
+    const ta = document.querySelector<HTMLTextAreaElement>(".manuscript-input");
+    if (!ta || ta.selectionEnd <= ta.selectionStart) { setSel(null); return; }
+    setSel({ start: ta.selectionStart, end: ta.selectionEnd, text: ta.value.slice(ta.selectionStart, ta.selectionEnd) });
+  }
+  useEffect(() => {
+    setSel(null);
+    readDomSelection();
+    const onSel = (ev: Event) => {
+      const d = (ev as CustomEvent).detail;
+      if (!d || d.sceneId !== sceneId) { setSel(null); return; }
+      setSel(d.end > d.start ? { start: d.start, end: d.end, text: d.text } : null);
+    };
+    window.addEventListener("writer:prose-select", onSel);
+    return () => window.removeEventListener("writer:prose-select", onSel);
+  }, [projectId, sceneId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!sceneId) { setBrief({ freedom: "medium", target_words: 1400 }); return; }
@@ -117,15 +140,25 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
     if (!sceneId) { setError(t(lang, "Chọn một cảnh đã có văn trước")); return; }
     setBusy(true); setPhase("saving"); setError(""); setDraft(""); setSent(false); setReviseMode(true); setIssues([]);
     const ac = new AbortController(); abortRef.current = ac;
+    setReviseSel(sel);
     try {
       const tree = await getJSON(`/api/v1/projects/${projectId}/manuscript`);
       const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
       if (!scene?.prose?.trim()) { setError(t(lang, "Cảnh chưa có văn — dùng 'Tạo bản mở rộng' thay vì sửa")); return; }
       setPhase("model");
+      let prompt: string;
+      if (sel) {
+        const i = scene.prose.indexOf(sel.text);
+        const before = i > 0 ? scene.prose.slice(Math.max(0, i - 400), i) : "";
+        const after = i >= 0 ? scene.prose.slice(i + sel.text.length, i + sel.text.length + 400) : "";
+        prompt = `ĐOẠN VĂN CẦN SỬA (là một phần trong cảnh — chỉ trả về ĐOẠN NÀY đã sửa, văn xuôi thuần, TUYỆT ĐỐI không kèm lại văn trước/sau):\n${sel.text}\n\nVĂN LIỀN TRƯỚC (chỉ tham chiếu, không lặp lại):\n…${before}\n\nVĂN LIỀN SAU (chỉ tham chiếu, không lặp lại):\n${after}…\n\nGHI CHÚ CẦN SỬA:\n${reviseNotes || "(không ghi — tự chỉnh giọng/nhịp)"}`;
+      } else {
+        prompt = `ĐOẠN VĂN GỐC:\n${scene.prose}\n\nGHI CHÚ CẦN SỬA:\n${reviseNotes || "(không ghi — tự chỉnh giọng/nhịp)"}`;
+      }
       const r: any = await postJSON(`/api/v1/projects/${projectId}/ai/complete`, {
         task: "revision",
         scene_id: sceneId,
-        prompt: `ĐOẠN VĂN GỐC:\n${scene.prose}\n\nGHI CHÚ CẦN SỬA:\n${reviseNotes || "(không ghi — tự chỉnh giọng/nhịp)"}`,
+        prompt,
       }, ac.signal);
       setDraft(typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r));
       if (Array.isArray(r.context)) setManifest(r.context);
@@ -141,9 +174,27 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
 
   async function replaceProse() {
     if (!sceneId || !draft) return;
-    await patchJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`, { prose: draft });
-    setDraft(""); setReviseMode(false);
-    toast(t(lang, "Đã thay thế bản thảo bằng bản AI sửa"));
+    if (reviseSel) {
+      const tree = await getJSON(`/api/v1/projects/${projectId}/manuscript`);
+      const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
+      const prose: string = scene?.prose ?? "";
+      let { start, end, text } = reviseSel;
+      if (prose.slice(start, end) !== text) {
+        const i = prose.indexOf(text);
+        if (i < 0 || prose.indexOf(text, i + 1) >= 0) {
+          setError(t(lang, "Văn đã đổi — bôi đen lại đoạn cần sửa")); return;
+        }
+        start = i; end = i + text.length;
+      }
+      await patchJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`,
+        { prose: prose.slice(0, start) + draft.trim() + prose.slice(end) });
+      setDraft(""); setReviseMode(false); setReviseSel(null); setSel(null);
+      toast(t(lang, "Đã thay thế đoạn chọn"));
+    } else {
+      await patchJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`, { prose: draft });
+      setDraft(""); setReviseMode(false);
+      toast(t(lang, "Đã thay thế bản thảo bằng bản AI sửa"));
+    }
     router.refresh();
   }
 
@@ -272,8 +323,8 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
         </details>
       )}
       <details className="ai-options" style={{ marginTop: 8 }}>
-        <summary>
-          {t(lang, "Sửa đoạn đã viết")} <span>{t(lang, "Gửi nguyên văn + ghi chú sửa")}</span>
+        <summary onClick={readDomSelection}>
+          {t(lang, "Sửa đoạn đã viết")} <span>{t(lang, "Bôi đen 1 đoạn để chỉ sửa đoạn đó")}</span>
         </summary>
         <div className="ai-options-body">
           <div className="field">
@@ -288,8 +339,16 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
               {t(lang, "✎ Làm tự nhiên (gỡ văn AI)")}
             </button>
           </div>
+          {sel && (
+            <div className="hint" style={{ marginBottom: 8 }}>
+              {t(lang, "Đang chọn {n} ký tự — AI chỉ sửa đoạn này:", { n: sel.end - sel.start })}{" "}
+              <em>{sel.text.length > 70 ? sel.text.slice(0, 70) + "…" : sel.text}</em>{" "}
+              <button type="button" className="btn ghost small" onClick={() => setSel(null)}>{t(lang, "Bỏ chọn")}</button>
+            </div>
+          )}
           <button className="btn wide" onClick={revise} disabled={busy || !sceneId}>
-            {busy ? (phase === "model" ? t(lang, "Đang chờ model… {n}s", { n: elapsed }) : t(lang, "Đang sửa…")) : t(lang, "✎ Nhờ AI sửa đoạn này")}
+            {busy ? (phase === "model" ? t(lang, "Đang chờ model… {n}s", { n: elapsed }) : t(lang, "Đang sửa…"))
+              : sel ? t(lang, "✎ Sửa đoạn đang chọn") : t(lang, "✎ Nhờ AI sửa đoạn này")}
           </button>
         </div>
       </details>
@@ -305,9 +364,11 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
             )}
             <p>{draft}</p>
             <div className="draft-actions">
-              <button className="btn" onClick={() => { setDraft(""); setReviseMode(false); toast(t(lang, "Đã bỏ bản nháp AI")); }}>{t(lang, "Bỏ")}</button>
+              <button className="btn" onClick={() => { setDraft(""); setReviseMode(false); setReviseSel(null); toast(t(lang, "Đã bỏ bản nháp AI")); }}>{t(lang, "Bỏ")}</button>
               {reviseMode ? (
-                <button className="btn" onClick={replaceProse} disabled={!sceneId}>{t(lang, "Thay thế bản thảo")}</button>
+                <button className="btn" onClick={replaceProse} disabled={!sceneId}>
+                  {reviseSel ? t(lang, "Thay thế đoạn chọn") : t(lang, "Thay thế bản thảo")}
+                </button>
               ) : (
                 <button className="btn" onClick={insert} disabled={!sceneId}>{t(lang, "Chèn để sửa")}</button>
               )}
