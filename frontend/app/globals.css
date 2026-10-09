@@ -93,6 +93,24 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .grid>*{min-width:0}
 .list-row .subtle,.thread small,.review-item .subtle{display:block;overflow:hidden}
 
+/* dàn chương — pick nhân vật/hố/năng lực cho chương đang mở */
+.cast-panel{border-top:1px solid var(--line);margin-top:10px;padding:10px 8px 4px}
+.cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 9px;font-size:12px;outline:none;margin:4px 0 8px}
+.cast-filter:focus{border-color:var(--teal)}
+.cast-group{margin:2px 0 6px}
+.cast-group>summary{display:flex;align-items:center;gap:6px;justify-content:space-between;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--muted);padding:5px 2px;list-style:none}
+.cast-group>summary::-webkit-details-marker{display:none}
+.cast-group>summary>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cast-group[open]>summary{color:var(--ink)}
+.cast-sub{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 2px}
+.cast-row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:7px;font-size:12.5px;cursor:pointer;line-height:1.35}
+.cast-row:hover{background:var(--paper2)}
+.cast-row.on{background:var(--gold2);color:var(--ink)}
+.cast-row input{width:14px;height:14px;accent-color:var(--teal);flex:0 0 auto;margin:0}
+.cast-row .cast-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cast-row small{color:var(--muted);font-size:11px;white-space:nowrap}
+.cast-hint{font-size:11px;color:var(--muted);margin:8px 4px 4px;line-height:1.5}
+
 /* readability pass — larger type + airier spacing over the dense Apple layer */
 body{font-size:16px}
 .nav-item{font-size:14.5px;padding:10px 11px}

@@ -41,6 +41,8 @@ class Chapter(Base):
     title: Mapped[str] = mapped_column(String(240))
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(32), default="draft")
+    # Dàn chương do tác giả khai báo: {"characters":[ids],"threads":[ids],"abilities":[ids]}
+    cast_json: Mapped[str | None] = mapped_column(Text)
 
 class Scene(Base):
     __tablename__ = "scenes"

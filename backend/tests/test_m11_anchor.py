@@ -16,6 +16,7 @@ from app.models.truth import StoryEvent, StoryState
 from app.models.memory import StorySummary
 from app.models.authoring import AuthoringStep
 from app.models.narrative import Thread
+from app.models.story import Ability as AbilityModel
 from app.ai.compose import build_story_prompt
 from app.services.constraints import (
     canonical_state_key, build_constraints, render_constraints)
@@ -267,3 +268,41 @@ async def test_fast_mode_writes_whole_chapter(client):
             s for s in steps if s.step_key.startswith("chapter_write.")
         ).output_json or "{}")
         assert out["scenes_written"] >= 2 and "issues" in out
+
+
+@pytest.mark.asyncio
+async def test_chapter_cast_pins_context(client):
+    """Dàn chương: nhân vật/hố/năng lực tác giả ghim vào context trước heuristic —
+    ability được inject kèm cơ chế; pinned thread lên đầu trong constraints."""
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid, title="Chương 1", order_index=1)
+        db.add(ch); await db.flush()
+        sc = Scene(project_id=pid, chapter_id=ch.id, title="S1",
+                   order_index=0, narrative_order=1, prose="")
+        hidden = Character(project_id=pid, name="Bà Tàng", importance=5)
+        th1 = Thread(project_id=pid, title="Hố được ghim", status="OPEN")
+        th2 = Thread(project_id=pid, title="Hố lạc lõng", status="OPEN")
+        ab = AbilityModel(project_id=pid, name="Mở tàng khố",
+                          can_do="phá phong ấn", cannot_do="hồi sinh người chết",
+                          cost="mất một ký ức")
+        db.add_all([sc, hidden, th1, th2, ab]); await db.flush()
+        ch.cast_json = json.dumps(
+            {"characters": [hidden.id], "threads": [th1.id],
+             "abilities": [ab.id]})
+        await db.commit()
+        sid = sc.id
+    async with SessionLocal() as db:
+        _, body, manifest = await build_story_prompt(
+            db, pid, "scene_expand", "Viết cảnh.", scene_id=sid)
+        assert "Bà Tàng" in body and "tác giả chọn cho chương này" in body
+        assert "Năng lực trong chương" in body and "Mở tàng khố" in body
+        assert "KHÔNG làm được: hồi sinh người chết" in body
+        assert "giá phải trả: mất một ký ức" in body
+        assert "cast-abilities" in "\n".join(manifest)
+        # constraints: pinned thread → must_respect, thread thường → may_use
+        scene = await db.get(Scene, sid)
+        cons = build_constraints and render_constraints(
+            await build_constraints(db, pid, scene))
+        assert "tác giả chọn cho chương này" in cons
+        assert "Hố được ghim" in cons

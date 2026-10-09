@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import NavLink from "./NavLink";
 import ManuscriptTree from "./ManuscriptTree";
+import ChapterCastPanel from "./ChapterCastPanel";
 import { t, type Lang } from "../lib/i18n";
 import { API, getJSON } from "../lib/api";
 
@@ -32,6 +33,8 @@ export default async function LeftNav({
   projectId,
   tree,
   characters,
+  threads,
+  abilities,
   openThreads,
   pendingCount,
 }: {
@@ -39,6 +42,8 @@ export default async function LeftNav({
   projectId: string;
   tree: { volumes: any[]; arcs: any[]; chapters: any[] };
   characters: { id: string; name: string }[];
+  threads: { id: string; title: string; status?: string }[];
+  abilities: { id: string; name: string; ability_type?: string | null }[];
   openThreads: number;
   pendingCount: number;
 }) {
@@ -100,6 +105,13 @@ export default async function LeftNav({
           chapters={tree.chapters ?? []}
           characters={characters}
           aiIds={aiIds}
+        />
+        <ChapterCastPanel
+          projectId={projectId}
+          chapters={tree.chapters ?? []}
+          characters={characters}
+          threads={threads}
+          abilities={abilities}
         />
       </Suspense>
     </aside>

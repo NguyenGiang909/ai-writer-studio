@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, Chapter, Scene, Volume, Arc
-from app.models.story import Character, Alias
+from app.models.story import Character, Alias, Ability
 from app.models.truth import CanonFact, StoryEvent, StoryState
 from app.models.narrative import Thread
 from app.models.memory import StorySummary, AiTurn
@@ -287,6 +287,7 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
     sections: list[tuple[str, int, str]] = []  # (text, priority, label)
     proj = await db.get(Project, pid)
     sc = None
+    cast: dict = {}  # dàn chương do tác giả ghim (cast_json)
     pool_parts = [user_prompt or ""]
 
     # --- current scene first (most important)
@@ -295,6 +296,12 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
         sc = await db.get(Scene, scene_id)
         if sc and sc.project_id == pid:
             ch = await db.get(Chapter, sc.chapter_id)
+            if ch and ch.cast_json:
+                try:
+                    c = json.loads(ch.cast_json)
+                    cast = c if isinstance(c, dict) else {}
+                except Exception:
+                    cast = {}
             arc = await db.get(Arc, ch.arc_id) if ch and ch.arc_id else None
             n_ch = await db.scalar(select(func.count(Chapter.id)).where(
                 Chapter.project_id == pid)) or 0
@@ -435,18 +442,41 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
         def appeared(c):
             return any(n and n.lower() in seen_pool
                        for n in [c.name, *alias_map.get(c.id, [])])
+        pinned_c = set(cast.get("characters") or [])
         keep = [c for c in chars
-                if c_score(c) > 0 or appeared(c)
+                if c.id in pinned_c or c_score(c) > 0 or appeared(c)
                 or (c.importance is not None and c.importance <= 1)]
         if not keep:
             keep = sorted(chars, key=lambda c: (c.importance or 9,
                                                 c.sort_order or 0))[:8]
-        ranked = sorted(keep, key=lambda c: (-c_score(c), c.sort_order or 0,
-                                             c.name or ""))[:12]
+        ranked = sorted(keep, key=lambda c: (-(c.id in pinned_c), -c_score(c),
+                                             c.sort_order or 0, c.name or ""))[:12]
         block = "Nhân vật:\n" + "\n".join(
-            f"- {c.name} ({c.role or '?'})" + (f": {_clip(c.summary, 220)}" if c.summary else "")
+            f"- {c.name} ({c.role or '?'})"
+            + (" — tác giả chọn cho chương này" if c.id in pinned_c else "")
+            + (f": {_clip(c.summary, 220)}" if c.summary else "")
             for c in ranked)
         sections.append((block, 4, f"characters(ranked {len(ranked)}/{len(chars)})"))
+
+    # dàn chương: năng lực tác giả chọn — trước giờ Ability không hề được inject,
+    # model không biết cơ chế/giới hạn nên chưa bao giờ dùng đúng
+    ab_ids = set(cast.get("abilities") or [])
+    if ab_ids:
+        abs_ = list((await db.scalars(select(Ability).where(
+            Ability.project_id == pid, Ability.id.in_(ab_ids)))).all())
+        if abs_:
+            lines = ["Năng lực trong chương (tác giả chọn — tôn trọng cơ chế đã chốt):"]
+            for ab in abs_:
+                det = []
+                if ab.can_do: det.append(f"làm được: {_clip(ab.can_do, 160)}")
+                if ab.cannot_do: det.append(f"KHÔNG làm được: {_clip(ab.cannot_do, 160)}")
+                if ab.limits: det.append(f"giới hạn: {_clip(ab.limits, 120)}")
+                if ab.cost: det.append(f"giá phải trả: {_clip(ab.cost, 120)}")
+                if ab.conditions: det.append(f"điều kiện: {_clip(ab.conditions, 120)}")
+                lines.append(f"- {ab.name}"
+                             + (f" [{ab.ability_type}]" if ab.ability_type else "")
+                             + (" — " + "; ".join(det) if det else ""))
+            sections.append(("\n".join(lines), 4, f"cast-abilities({len(abs_)})"))
 
     facts = list((await db.scalars(select(CanonFact).where(
         CanonFact.project_id == pid, CanonFact.truth_status.in_(["CANON", "PLANNED"])))).all())
@@ -477,14 +507,39 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
     return "\n\n---\n\n".join(out), manifest
 
 
-async def _open_threads_block(db: AsyncSession, pid: str) -> tuple[str | None, int]:
+async def _chapter_cast(db: AsyncSession, scene_id: str | None = None,
+                        chapter_id: str | None = None) -> dict:
+    """Dàn chương tác giả ghim — skeleton/outline paths không load ch sẵn."""
+    ch = None
+    if chapter_id:
+        ch = await db.get(Chapter, chapter_id)
+    elif scene_id:
+        s = await db.get(Scene, scene_id)
+        if s:
+            ch = await db.get(Chapter, s.chapter_id)
+    if ch and ch.cast_json:
+        try:
+            c = json.loads(ch.cast_json)
+            return c if isinstance(c, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+async def _open_threads_block(db: AsyncSession, pid: str,
+                              pinned_ids: set[str] | None = None
+                              ) -> tuple[str | None, int]:
     threads = list((await db.scalars(select(Thread).where(
         Thread.project_id == pid, Thread.status == "OPEN"))).all())
     if not threads:
         return None, 0
+    pinned_ids = pinned_ids or set()
+    threads.sort(key=lambda t: 0 if t.id in pinned_ids else 1)
     block = "Hố/tuyến đang mở:\n" + "\n".join(
-        f"- {th.title}" + (f" (payoff dự kiến ~mốc {th.planned_payoff_order})"
-                           if th.planned_payoff_order else "")
+        f"- {th.title}"
+        + (" — chương này tác giả có ý đụng tới" if th.id in pinned_ids else "")
+        + (f" (payoff dự kiến ~mốc {th.planned_payoff_order})"
+           if th.planned_payoff_order else "")
         for th in threads[:10])
     return block, min(len(threads), 10)
 
@@ -537,7 +592,9 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
                 if ctx else user_prompt)
         return EXTRACTION_SYSTEM, body, manifest
     if task == "skeleton":
-        block, n = await _open_threads_block(db, pid)
+        cast = await _chapter_cast(db, scene_id=scene_id)
+        block, n = await _open_threads_block(
+            db, pid, set(cast.get("threads") or []))
         if block:
             ctx = f"{ctx}\n\n---\n\n{block}" if ctx else block
             manifest.append(f"included open threads: {n}")
@@ -569,7 +626,9 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
                 if bed:
                     extras.append(bed)
                     manifest.append("included bedrock-states")
-        block, n = await _open_threads_block(db, pid)
+        cast = await _chapter_cast(db, chapter_id=chapter_id)
+        block, n = await _open_threads_block(
+            db, pid, set(cast.get("threads") or []))
         if block:
             extras.append(block)
             manifest.append(f"included open threads: {n}")

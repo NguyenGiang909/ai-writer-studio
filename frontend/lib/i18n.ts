@@ -978,4 +978,14 @@ const EN: Record<string, string> = {
     "Insert a supplementary chapter right after the selected one — all later chapter/event/state/summary ordering shifts automatically",
   "Tên chương mới — sẽ chèn NGAY SAU chương {n}, các chương sau tự dời (đồng bộ cả dữ kiện/sự kiện/tóm tắt):":
     "New chapter title — inserted RIGHT AFTER chapter {n}; later chapters shift (events/states/summaries shift along):",
+  "Dàn vai": "Chapter cast",
+  "Nhân vật trong chương": "Characters in this chapter",
+  "Hố & năng lực": "Threads & abilities",
+  "Hố đang mở": "Open threads",
+  "Không có hố đang mở": "No open threads",
+  "Chưa có nhân vật — tạo ở mục Nhân vật": "No characters — create them under Characters",
+  "Chưa có năng lực — tạo ở mục Năng lực": "No abilities — create them under Abilities",
+  "Chọn để AI đưa đúng người/hố/năng lực vào ngữ cảnh khi viết":
+    "Pick so AI brings the right people/threads/abilities into context when writing",
+  "Lọc tên…": "Filter names…",
 };

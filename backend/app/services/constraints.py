@@ -4,6 +4,8 @@ Turns DB truth into explicit must_respect / may_use / must_not_invent lines
 so the model is told (not asked) what it cannot contradict.
 """
 
+import json
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,11 +139,25 @@ async def build_constraints(
                 else:
                     must.append(f"POV chỉ NGHI '{f.predicate}' — không được viết như đã biết chắc")
 
-    # --- open threads relevant now
+    # --- open threads relevant now; dàn chương (cast_json) ghim thread tác giả
+    # đã chọn cho chương — lên đầu danh sách và được bảo chủ động đụng tới
+    pinned_tids: set[str] = set()
+    if scene:
+        ch = await db.get(Chapter, scene.chapter_id)
+        if ch and ch.cast_json:
+            try:
+                pinned_tids = set(json.loads(ch.cast_json).get("threads") or [])
+            except Exception:
+                pinned_tids = set()
     open_threads = list((await db.scalars(
         select(Thread).where(Thread.project_id == pid, Thread.status == "OPEN"))).all())
+    open_threads.sort(key=lambda t: 0 if t.id in pinned_tids else 1)
     for th in open_threads[:8]:
-        may.append(f"Hố '{th.title}' đang mở — chỉ đụng tới nếu xương cảnh yêu cầu")
+        if th.id in pinned_tids:
+            must.append(f"Hố '{th.title}' — tác giả chọn cho chương này: để nó "
+                        f"bề mặt/nhích tiến nếu xương cảnh cho phép")
+        else:
+            may.append(f"Hố '{th.title}' đang mở — chỉ đụng tới nếu xương cảnh yêu cầu")
 
     # locked canon = absolute
     locked = list((await db.scalars(
