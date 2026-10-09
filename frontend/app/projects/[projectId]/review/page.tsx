@@ -20,9 +20,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
     safe(`${base}/continuity/check`),
     safe(`${base}/manuscript`),
   ]);
-  const chapters = (manuscript.chapters ?? [])
+  const allChapters = manuscript.chapters ?? [];
+  const chapters = allChapters
     .filter((c: any) => (c.scenes ?? []).some((s: any) => s.prose))
     .map((c: any) => ({ id: c.id, title: c.title, order_index: c.order_index }));
+  const arcs = (manuscript.arcs ?? []).map((a: any) => {
+    const chs = allChapters.filter((c: any) => c.arc_id === a.id);
+    return { id: a.id, title: a.title,
+             from: Math.min(...chs.map((c: any) => c.order_index)),
+             to: Math.max(...chs.map((c: any) => c.order_index)),
+             count: chs.length };
+  }).filter((a: any) => a.count > 0);
   const done = resolved.filter((s: any) => s.status !== "pending");
   const count = continuity.count ?? (continuity.issues ?? []).length ?? 0;
 
@@ -40,7 +48,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
           <p className="subtle">{t(lang, "Kiểm tra tự động, chỉ đọc — không tự sửa bản thảo.")}</p>
           <ReviewIssues issues={continuity.issues ?? []} projectId={projectId} />
         </div>
-        <ChapterDeepCheck projectId={projectId} chapters={chapters ?? []} />
+        <ChapterDeepCheck projectId={projectId} chapters={chapters ?? []}
+          allChapters={allChapters.map((c: any) => ({ id: c.id, title: c.title, order_index: c.order_index }))}
+          arcs={arcs} />
         <div className="card">
           <h3>{t(lang, "Nguyên tắc")}</h3>
           <p>

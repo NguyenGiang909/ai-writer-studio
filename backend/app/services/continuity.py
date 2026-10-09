@@ -194,3 +194,28 @@ def scene_no_narr(scene_id:str,scene_title:str,chapter_order:int|None):
         f"Cảnh '{scene_title}' (chương {chapter_order}) có văn nhưng thiếu narrative_order — "
         f"trạng thái/knowledge không lọc theo vị trí được.",
         {"scene_id":scene_id,"chapter_order":chapter_order})
+
+# ---- style: fatigue words — cụm lặp bất thường = dấu hiệu văn mẫu AI ----
+_FUNC_WORDS=set("""và của là một những được trong đã cho với không có ở lại thì
+vẫn rồi đến từ về ra lên xuống như khi mà nên cũng đây đó ấy này kia vậy thế đang
+sẽ bị vì hay hoặc cả mỗi đều rất quá hơi hơn cùng chỉ ngay luôn tôi anh cô em
+mình chị chú họ nó ta người""".split())
+
+def fatigue_phrases(prose:str,min_count:int=8,max_out:int=5):
+    """3-gram lặp ≥min_count trong MỘT chương — cụm phải chứa ít nhất 1 từ
+    nội dung (không toàn hư từ) để tránh bắt cấu trúc câu bình thường."""
+    words=re.findall(r"[a-zA-ZÀ-ỹĐđ]+",prose.lower())
+    grams={}
+    for i in range(len(words)-2):
+        g=" ".join(words[i:i+3])
+        grams[g]=grams.get(g,0)+1
+    out=[(g,n) for g,n in grams.items() if n>=min_count
+         and any(w not in _FUNC_WORDS for w in g.split())]
+    return sorted(out,key=lambda x:-x[1])[:max_out]
+
+def style_fatigue(phrase:str,count:int,chapter_id:str,chapter_order:int|None):
+    return Issue("STYLE_FATIGUE","style","warning" if count>=10 else "info",
+        f"Cụm '{phrase}' lặp {count} lần trong chương {chapter_order} — "
+        f"nghi văn mẫu lặp, cân nhắc biến hoá câu.",
+        {"chapter_id":chapter_id,"narrative_order":chapter_order,
+         "phrase":phrase,"count":count})

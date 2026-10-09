@@ -8,20 +8,29 @@ import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
 
 type Finding = {
-  id: string; scope_id: string; chapter_title?: string | null;
+  id: string; scope_id: string; scope_type?: string; scope_label?: string | null;
+  chapter_title?: string | null;
   chapter_order?: number | null; created_at: string;
-  issues: { code: string; severity: string; message: string; suggestion?: string; scene_id?: string | null }[];
+  issues: { code: string; severity: string; message: string; suggestion?: string;
+            scene_id?: string | null; chapter_id?: string | null; chapter_order?: number | null }[];
 };
 
 export default function ChapterDeepCheck({
-  projectId, chapters,
+  projectId, chapters, allChapters, arcs = [],
 }: {
   projectId: string;
   chapters: { id: string; title: string; order_index: number }[];
+  allChapters?: { id: string; title: string; order_index: number }[];
+  arcs?: { id: string; title: string; from: number; to: number; count: number }[];
 }) {
   const lang = useLang();
   const [findings, setFindings] = useState<Finding[]>([]);
   const [chid, setChid] = useState(chapters[0]?.id ?? "");
+  const allChs = allChapters?.length ? allChapters : chapters;
+  const [scope, setScope] = useState<"chapter" | "range">("chapter");
+  const [fromO, setFromO] = useState(allChs[0]?.order_index ?? 1);
+  const [toO, setToO] = useState(allChs[allChs.length - 1]?.order_index ?? 1);
+  const [warns, setWarns] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState("");
@@ -101,12 +110,19 @@ export default function ChapterDeepCheck({
   }, [busy]);
 
   async function run() {
-    if (!chid || busy) return;
-    setBusy(true); setErr(""); setElapsed(0);
+    if (busy) return;
+    setBusy(true); setErr(""); setElapsed(0); setWarns([]);
     abort.current = new AbortController();
     try {
-      await postJSON(`/api/v1/projects/${projectId}/chapters/${chid}/deep-check`, {},
-        abort.current.signal);
+      if (scope === "chapter") {
+        if (!chid) return;
+        await postJSON(`/api/v1/projects/${projectId}/chapters/${chid}/deep-check`, {},
+          abort.current.signal);
+      } else {
+        const r: any = await postJSON(`/api/v1/projects/${projectId}/deep-check`,
+          { from_order: fromO, to_order: toO }, abort.current.signal);
+        if (r?.warnings?.length) setWarns(r.warnings);
+      }
       await reload();
     } catch (e: any) {
       if (e?.name !== "AbortError") setErr(e?.message ?? t(lang, "Lỗi không xác định"));
@@ -119,22 +135,63 @@ export default function ChapterDeepCheck({
 
   return (
     <div className="card">
-      <h3>{t(lang, "AI soi chương (sâu)")}</h3>
+      <h3>{t(lang, "AI soi sâu")}</h3>
       <p className="subtle">
-        {t(lang, "Model đọc cả chương để bắt lỗi nghĩa mà dò tự động không thấy: sự kiện trùng, câu tự phủ nhận, văn lệch dàn ý. Mỗi lần soi tốn ~1 phút API.")}
+        {t(lang, "Chương: model đọc cả chương bắt lỗi nghĩa trong chương. Khoảng: soi xuyên nhiều chương (hố bị quên, nhân vật biến mất, mạch chệch) qua tóm tắt + mẫu văn — không lặp lỗi đã soi ở từng chương.")}
       </p>
+      <div className="mode" style={{ marginBottom: 8 }}>
+        <button className={`btn${scope === "chapter" ? " primary" : " ghost"}`}
+          onClick={() => setScope("chapter")} disabled={busy}>
+          {t(lang, "Chương")}
+        </button>
+        <button className={`btn${scope === "range" ? " primary" : " ghost"}`}
+          onClick={() => setScope("range")} disabled={busy}>
+          {t(lang, "Khoảng")}
+        </button>
+      </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <select className="input" value={chid} onChange={(e) => setChid(e.target.value)}
-          disabled={busy} style={{ minWidth: 240 }}>
-          {chapters.map((c) => (
-            <option key={c.id} value={c.id}>
-              {t(lang, "Chương {n}", { n: c.order_index })} — {c.title}
-            </option>
-          ))}
-        </select>
+        {scope === "chapter" ? (
+          <select className="input" value={chid} onChange={(e) => setChid(e.target.value)}
+            disabled={busy} style={{ minWidth: 240 }}>
+            {chapters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {t(lang, "Chương {n}", { n: c.order_index })} — {c.title}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <select className="input" value={fromO} disabled={busy}
+              onChange={(e) => setFromO(Number(e.target.value))} style={{ minWidth: 150 }}>
+              {allChs.map((c) => (
+                <option key={c.id} value={c.order_index}>{t(lang, "Từ Ch{n}", { n: c.order_index })} — {c.title}</option>
+              ))}
+            </select>
+            <select className="input" value={toO} disabled={busy}
+              onChange={(e) => setToO(Number(e.target.value))} style={{ minWidth: 150 }}>
+              {allChs.map((c) => (
+                <option key={c.id} value={c.order_index}>{t(lang, "Đến Ch{n}", { n: c.order_index })} — {c.title}</option>
+              ))}
+            </select>
+            {arcs.length > 0 && (
+              <select className="input" disabled={busy} defaultValue=""
+                onChange={(e) => {
+                  const a = arcs.find((x) => x.id === e.target.value);
+                  if (a) { setFromO(a.from); setToO(a.to); }
+                  e.target.value = "";
+                }} style={{ minWidth: 150 }}>
+                <option value="">{t(lang, "Chọn theo hồi…")}</option>
+                {arcs.map((a) => (
+                  <option key={a.id} value={a.id}>{a.title} ({a.count} {t(lang, "chương")})</option>
+                ))}
+              </select>
+            )}
+          </>
+        )}
         {!busy ? (
-          <button className="btn primary" onClick={run} disabled={!chid}>
-            {t(lang, "Soi chương này")}
+          <button className="btn primary" onClick={run}
+            disabled={scope === "chapter" ? !chid : fromO > toO}>
+            {scope === "chapter" ? t(lang, "Soi chương này") : t(lang, "Soi khoảng này")}
           </button>
         ) : (
           <>
@@ -145,6 +202,7 @@ export default function ChapterDeepCheck({
           </>
         )}
       </div>
+      {scope === "chapter" && (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
         <button className="btn ghost" onClick={reextract} disabled={!chid || rexBusy}
           title={t(lang, "Xoá dữ kiện AI đã trích của chương rồi trích lại từ văn hiện tại — dùng sau khi sửa prose. Dữ kiện tác giả nhập tay được giữ.")}>
@@ -156,6 +214,10 @@ export default function ChapterDeepCheck({
         </button>
         {rex && <span className="subtle">{rex}</span>}
       </div>
+      )}
+      {warns.length > 0 && (
+        <p className="subtle">⚠ {warns.join(" · ")}</p>
+      )}
       {err && <p style={{ color: "var(--red)" }}>{err}</p>}
 
       <div className="review-list" style={{ marginTop: 12 }}>
@@ -163,8 +225,13 @@ export default function ChapterDeepCheck({
           <div key={f.id} className="review-item">
             <header>
               <span>
-                <b>{t(lang, "Chương {n}", { n: f.chapter_order ?? "?" })}</b>
+                <b>{f.scope_label
+                  ? f.scope_label
+                  : t(lang, "Chương {n}", { n: f.chapter_order ?? "?" })}</b>
                 {f.chapter_title ? ` — ${f.chapter_title}` : ""}
+                {f.scope_type === "range" && (
+                  <span className="pill" style={{ marginLeft: 6 }}>{t(lang, "Khoảng")}</span>
+                )}
                 <span className="subtle"> · {(f.created_at ?? "").slice(0, 16).replace("T", " ")}</span>
               </span>
               <button className="btn ghost small" onClick={() => remove(f.id)}>
@@ -179,6 +246,10 @@ export default function ChapterDeepCheck({
                   <span className={`pill${sev.warn ? " warn" : ""}`}>{sev.label}</span>{" "}
                   <span>{i.message}</span>
                   {i.suggestion && <p className="subtle" style={{ marginTop: 2 }}>→ {i.suggestion}</p>}
+                  {i.chapter_order != null && (
+                    <Link href={`/projects/${projectId}/read?chapter=${i.chapter_order}`}
+                      className="issue-link">→ {t(lang, "Đọc chương {n}", { n: i.chapter_order })}</Link>
+                  )}{" "}
                   {i.scene_id && (
                     <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
                       <Link href={`/projects/${projectId}?scene=${i.scene_id}`} className="issue-link">

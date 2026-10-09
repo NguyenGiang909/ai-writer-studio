@@ -153,3 +153,61 @@ async def test_deep_check_persists_findings(client):
         ch2id = ch2.id
     r = await client.post(f"/api/v1/projects/{pid}/chapters/{ch2id}/deep-check")
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_range_deep_check(client):
+    pid = (await client.post("/api/v1/projects", json={"name": "Range"})).json()["id"]
+    async with SessionLocal() as db:
+        for i in (1, 2, 3):
+            ch = Chapter(project_id=pid, title=f"C{i}", order_index=i)
+            db.add(ch); await db.flush()
+            db.add(Scene(project_id=pid, chapter_id=ch.id, title=f"S{i}",
+                         order_index=1, narrative_order=i,
+                         prose=f"Đoạn văn của chương {i}. " * 60))
+        await db.commit()
+    r = await client.post(f"/api/v1/projects/{pid}/deep-check",
+                          json={"from_order": 1, "to_order": 2})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["mode"] == "prose" and d["from_order"] == 1 and d["to_order"] == 2
+    assert any("thiếu tóm tắt" in w for w in d["warnings"])
+    fid = d["finding_id"]
+    async with SessionLocal() as db:
+        f = await db.get(AuditFinding, fid)
+        assert f and f.scope_type == "range" and f.scope_id == "1-2"
+    lst = (await client.get(f"/api/v1/projects/{pid}/audit/findings")).json()
+    assert any(x["id"] == fid and x["scope_label"] == "Chương 1–2" for x in lst["findings"])
+    # invalid ranges
+    assert (await client.post(f"/api/v1/projects/{pid}/deep-check",
+            json={"from_order": 3, "to_order": 1})).status_code == 400
+    assert (await client.post(f"/api/v1/projects/{pid}/deep-check",
+            json={"from_order": 8, "to_order": 9})).status_code == 400
+    # outline mode: chương chỉ có skeleton
+    pid2 = (await client.post("/api/v1/projects", json={"name": "Outline"})).json()["id"]
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid2, title="O1", order_index=1)
+        db.add(ch); await db.flush()
+        db.add(Scene(project_id=pid2, chapter_id=ch.id, title="OS",
+                     order_index=1, skeleton="Minh mở rương cũ"))
+        await db.commit()
+    r = await client.post(f"/api/v1/projects/{pid2}/deep-check", json={})
+    assert r.status_code == 200 and r.json()["mode"] == "outline"
+
+
+@pytest.mark.asyncio
+async def test_style_fatigue_flagged(client):
+    pid = (await client.post("/api/v1/projects", json={"name": "Fatigue"})).json()["id"]
+    # cụm "cái nhìn lạnh lẽo" lặp 10 lần — dấu hiệu văn mẫu
+    prose = " ".join(["Minh bước đi trên con đường quen thuộc mỗi sáng sớm. Cái nhìn lạnh lẽo phủ xuống căn phòng vắng." for _ in range(10)])
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid, title="F1", order_index=1)
+        db.add(ch); await db.flush()
+        db.add(Scene(project_id=pid, chapter_id=ch.id, title="F",
+                     order_index=1, narrative_order=1, prose=prose))
+        await db.commit()
+    r = await client.get(f"/api/v1/projects/{pid}/continuity/check")
+    codes = {i["code"] for i in r.json()["issues"]}
+    assert "STYLE_FATIGUE" in codes
+    fat = [i for i in r.json()["issues"] if i["code"] == "STYLE_FATIGUE"]
+    assert fat[0]["evidence"]["count"] >= 8

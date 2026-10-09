@@ -19,7 +19,7 @@ from app.ai.writer import parse_author_brief,allocate_word_budget,line_diff
 from app.services.continuity import (restricted_appearance,location_conflict,ability_locked,
     item_owner_mismatch,relationship_ended,stale_thread,dedupe,Issue,
     canon_conflict,state_conflict,state_regression,unplanned_location,
-    phase_leak,missing_extraction,scene_no_narr)
+    phase_leak,missing_extraction,scene_no_narr,fatigue_phrases,style_fatigue)
 from app.schemas.extras import *
 router=APIRouter()
 
@@ -508,6 +508,13 @@ async def continuity_check(pid:str,db:AsyncSession=Depends(get_db)):
             ch=chapters.get(sc.chapter_id)
             issues.append(scene_no_narr(sc.id,sc.title or "?",ch.order_index if ch else None))
 
+    # STYLE_FATIGUE — cụm 3 từ lặp bất thường trong chương (dấu hiệu văn mẫu)
+    for ch in chapters.values():
+        prose="\n\n".join(s.prose or "" for s in scenes if s.chapter_id==ch.id)
+        if len(prose)<800: continue
+        for phrase,n in fatigue_phrases(prose):
+            issues.append(style_fatigue(phrase,n,ch.id,ch.order_index))
+
     out=dedupe(issues)
     return {"issues":[{"code":i.code,"category":i.category,"severity":i.severity,
                        "message":i.message,"evidence":i.evidence} for i in out],
@@ -650,6 +657,167 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
         out["skipped_windows"] = skipped
     return out
 
+_DEEP_RANGE_SYSTEM=(
+    "Bạn là biên tập viên tổng của truyện dài. Soi MỘT KHOẢNG CHƯƠNG qua "
+    "tóm tắt, xương cảnh và mẫu văn được cung cấp. Chỉ báo LỖI CẤP KHOẢNG "
+    "(xuyên từ 2 chương trở lên) — KHÔNG lặp lại lỗi đã ghi trong mục "
+    "'findings đã biết', không bình luận văn phong từng câu:\n"
+    "- THREAD_DRIFT: hố/tuyến mở trước hoặc trong khoảng mà không chương nào nhích\n"
+    "- CHARACTER_FADE: nhân vật quan trọng vắng mặt bất thường qua nhiều chương\n"
+    "- PREMISE_DRIFT: các chương chệch hướng/premise của khoảng truyện\n"
+    "- PACING_FLAT: các chương lặp cùng một kiểu beat, nhịp không đổi\n"
+    "- CROSS_CHAPTER_CONTRADICTION: hai chương tự phủ nhận (tóm tắt/văn mâu thuẫn)\n"
+    "- ARC_CONTRACT: điều hứa ở đầu khoảng không được trả ở cuối\n"
+    "Nếu khoảng chưa có văn (chỉ xương cảnh): báo OUTLINE_GAP (lỗ hổng dàn ý), "
+    "BEAT_DUP (beat trùng), INTRO_MISSING (nhân vật/địa danh dùng chưa giới thiệu), "
+    "PAYOFF_SETUP (hứa không có chuẩn bị).\n"
+    "Trả JSON THUẦN (không markdown): [{\"chapter\": số chương hoặc null,"
+    "\"severity\":\"error|warning\",\"code\":\"MÃ\",\"message\":\"gọn\","
+    "\"suggestion\":\"ngắn\"}]. Không có lỗi thì trả []."
+)
+
+@router.post("/projects/{pid}/deep-check")
+async def deep_check_range(pid:str,p:dict=Body(...),db:AsyncSession=Depends(get_db)):
+    """Soi một KHOẢNG chương (mặc định toàn bộ) — lỗi xuyên-chương mà
+    check từng chương không thấy. Context chia tầng: summary + skeleton +
+    mẫu prose mỗi chương + nguyên văn đầu/cuối (tier ≥ standard) — học
+    cấu trúc Editor của ainovel nhưng có human gate. Không ghi prose."""
+    await project_ok(db,pid)
+    chs=sorted((await db.scalars(select(Chapter).where(Chapter.project_id==pid))).all(),
+               key=lambda c:c.order_index)
+    if not chs: raise HTTPException(400,"project has no chapters")
+    fo=int(p.get("from_order") or chs[0].order_index)
+    to=int(p.get("to_order") or chs[-1].order_index)
+    if fo>to: raise HTTPException(400,"from_order > to_order")
+    in_range=[c for c in chs if fo<=c.order_index<=to]
+    if not in_range: raise HTTPException(400,"no chapters in range")
+
+    scs=list((await db.scalars(select(Scene)
+        .where(Scene.chapter_id.in_([c.id for c in in_range]))
+        .order_by(Scene.order_index))).all())
+    scs_by_ch:dict[str,list]={}
+    for s in scs: scs_by_ch.setdefault(s.chapter_id,[]).append(s)
+    has_prose=any((s.prose or "").strip() for s in scs)
+    has_outline=any((s.skeleton or "").strip() for s in scs)
+    if not has_prose and not has_outline:
+        raise HTTPException(400,"range has no prose or outline")
+    mode="prose" if has_prose else "outline"
+
+    from app.models.memory import StorySummary
+    sums={r.scope_id:r for r in (await db.scalars(select(StorySummary)
+        .where(StorySummary.project_id==pid,StorySummary.scope_type=="chapter",
+               StorySummary.scope_id.in_([c.id for c in in_range])))).all()}
+    threads=list((await db.scalars(select(Thread)
+        .where(Thread.project_id==pid,Thread.status=="OPEN"))).all())
+    beats=list((await db.scalars(select(ThreadBeat)
+        .where(ThreadBeat.project_id==pid))).all())
+    last_touch={}
+    for b in beats:
+        if b.narrative_order is not None:
+            last_touch[b.thread_id]=max(last_touch.get(b.thread_id,0),b.narrative_order)
+    thread_lines=[f'- "{t.title}" — chạm cuối chương {last_touch.get(t.id,"chưa từng")}'
+                  for t in threads if last_touch.get(t.id,0)<=to]
+
+    router=ModelRouter(db)
+    tier=await router.provider_tier("review",pid)
+    grp_len={"low":6500,"standard":16000}.get(tier,45000)
+    edge_cap={"low":0,"standard":6000}.get(tier,20000)
+
+    warnings=[]
+    miss=sum(1 for c in in_range if c.id not in sums)
+    stale=sum(1 for c in in_range if c.id in sums and sums[c.id].stale)
+    if miss: warnings.append(f"{miss} chương thiếu tóm tắt — độ tin cậy giảm")
+    if stale: warnings.append(f"{stale} tóm tắt đã cũ (văn đổi sau tóm tắt)")
+
+    hdr=[f"=== SOI KHOẢNG: Chương {fo} → {to} ({len(in_range)} chương, mode={mode}) ==="]
+    if thread_lines: hdr.append("Hố đang OPEN:\n"+"\n".join(thread_lines[:15]))
+    olds=list((await db.scalars(select(AuditFinding)
+        .where(AuditFinding.project_id==pid,AuditFinding.scope_type=="chapter"))).all())
+    ch_by_id={c.id:c for c in in_range}
+    known=[]
+    for f in olds:
+        c=ch_by_id.get(f.scope_id)
+        if not c: continue
+        for it in json.loads(f.issues_json or "[]")[:6]:
+            known.append(f"Ch{c.order_index}: {str(it.get('message'))[:120]}")
+    if known: hdr.append("Findings đã biết (ĐỪNG lặp):\n"+"\n".join(known[:20]))
+
+    segs=[]
+    for c in in_range:
+        lines=[f"--- Chương {c.order_index}: \"{c.title}\""]
+        ss=sums.get(c.id)
+        if ss: lines.append(f"Tóm tắt{'(ĐÃ CŨ)' if ss.stale else ''}: {(ss.summary or '')[:700]}")
+        skel=" | ".join((s.skeleton or "")[:180] for s in scs_by_ch.get(c.id,[]) if s.skeleton)
+        if skel: lines.append(f"Xương: {skel[:700]}")
+        full="\n\n".join(s.prose for s in scs_by_ch.get(c.id,[]) if (s.prose or "").strip())
+        if full: lines.append(f"Mẫu văn: {full[:400]}")
+        segs.append((c,"\n".join(lines),full))
+
+    # nguyên văn chương đầu + cuối — chỗ mạch vào/ra hay gãy (tier low: bỏ)
+    edge=[]
+    if edge_cap and has_prose:
+        edge_chs=[segs[0]]+([segs[-1]] if len(segs)>1 else [])
+        for c,_,full in edge_chs:
+            if full: edge.append(f"=== NGUYÊN VĂN Chương {c.order_index} ===\n{full[:edge_cap]}")
+
+    prompts=[]; cur=list(hdr); curlen=len("\n\n".join(cur))
+    for _,seg,_f in segs:
+        if curlen+len(seg)+2>grp_len and len(cur)>len(hdr) and len(prompts)<5:
+            prompts.append(cur); cur=list(hdr); curlen=len("\n\n".join(cur))
+        cur.append(seg); curlen+=len(seg)+2
+    for e in edge:
+        if curlen+len(e)+2>grp_len and len(prompts)<5:
+            prompts.append(cur); cur=list(hdr); curlen=len("\n\n".join(cur))
+        cur.append(e); curlen+=len(e)+2
+    prompts.append(cur)
+
+    ord2id={c.order_index:c.id for c in in_range}
+    found=[]; seen_msg=set(); replies=[]; provider=model=""; skipped=0
+    for prt in prompts:
+        prompt="\n\n".join(prt)+"\n\nTrả JSON theo schema đã nêu trong system."
+        result=None
+        for attempt in range(3):
+            try:
+                result=await router.complete(ModelRequest(task="review",prompt=prompt,
+                    project_id=pid,system=_DEEP_RANGE_SYSTEM))
+                break
+            except RuntimeError:
+                if attempt<2: await asyncio.sleep(4+attempt*6)
+        if result is None: skipped+=1; continue
+        provider,model=result.provider or "",result.model or ""
+        txt=(result.text or "").strip(); replies.append(txt)
+        m=re.search(r"\[.*\]",txt,re.DOTALL)
+        if not m: continue
+        try: raw=json.loads(m.group())
+        except (json.JSONDecodeError,TypeError): continue
+        for it in (raw if isinstance(raw,list) else []):
+            if not isinstance(it,dict) or not it.get("message"): continue
+            key=re.sub(r"\s+"," ",str(it["message"]))[:50].lower()
+            if key in seen_msg: continue
+            seen_msg.add(key)
+            cord=it.get("chapter")
+            try: cord=int(cord) if cord is not None else None
+            except (TypeError,ValueError): cord=None
+            found.append({"code":str(it.get("code") or "AI_REVIEW")[:40],
+                "severity":it.get("severity") if it.get("severity") in("error","warning","info") else "warning",
+                "message":str(it["message"])[:400],
+                "suggestion":str(it.get("suggestion") or "")[:300],
+                "chapter_id":ord2id.get(cord),"chapter_order":cord})
+
+    f=AuditFinding(project_id=pid,scope_type="range",scope_id=f"{fo}-{to}",
+                   issues_json=json.dumps(found,ensure_ascii=False))
+    db.add(f)
+    db.add(AiTurn(project_id=pid,scope_id=pid,task="deep_check_range",
+                  prompt_excerpt=(f"[{len(prompts)} calls] "+hdr[0])[:4000],
+                  reply_text="\n---\n".join(replies)[:4000],
+                  provider=provider,model=model))
+    await db.commit()
+    out={"finding_id":f.id,"issues":found,"count":len(found),"mode":mode,
+         "from_order":fo,"to_order":to,"provider":provider,"model":model,
+         "calls":len(prompts),"tier":tier,"warnings":warnings}
+    if skipped: out["skipped_windows"]=skipped
+    return out
+
 @router.post("/projects/{pid}/scenes/{sid}/ai-fix")
 async def ai_fix_scene(pid:str,sid:str,p:dict=Body(...),db:AsyncSession=Depends(get_db)):
     """AI sửa một cảnh theo mô tả lỗi — trả bản nháp, KHÔNG ghi DB.
@@ -680,7 +848,13 @@ async def audit_findings(pid:str,db:AsyncSession=Depends(get_db)):
         .where(AuditFinding.project_id==pid)
         .order_by(AuditFinding.created_at.desc()))).all())
     chs={c.id:c for c in (await db.scalars(select(Chapter).where(Chapter.project_id==pid))).all()}
+    def _label(r):
+        if r.scope_type=="range":
+            a,_,b=(r.scope_id or "").partition("-")
+            return f"Chương {a}–{b}" if a and b else "Khoảng chương"
+        return None
     return {"findings":[{"id":r.id,"scope_type":r.scope_type,"scope_id":r.scope_id,
+                         "scope_label":_label(r),
                          "chapter_title":chs.get(r.scope_id).title if r.scope_id in chs else None,
                          "chapter_order":chs.get(r.scope_id).order_index if r.scope_id in chs else None,
                          "issues":json.loads(r.issues_json or "[]"),"created_at":r.created_at}
