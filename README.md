@@ -1,8 +1,8 @@
 # AI Writer Studio
 
-**A Story OS for long-form fiction with two workflows — write first and let AI expand, or let AI draft entire arcs while you audit and repair.**
+**A Story OS for long-form fiction, built for speed without the slop — write first and let AI expand, or let AI draft entire arcs while you audit and repair. Two directions, same authority.**
 
-> Ứng dụng viết tiểu thuyết dài kỳ hai chiều: tác giả viết trước, AI hỗ trợ thảo luận/mở rộng — hoặc AI viết nháp cả trăm chương, tác giả rà soát, sửa đoạn, giữ quyền quyết định cuối. Mọi gợi ý của AI là bản nháp — không có gì tự động trở thành Canon.
+> Ứng dụng viết tiểu thuyết dài kỳ hai chiều: tác giả viết trước, AI mở rộng — hoặc AI viết nháp cả trăm chương, tác giả rà soát và sửa. Mục tiêu: ra truyện nhanh nhưng chất lượng vẫn do người viết chốt, hạn chế tối đa "AI slop". Mọi gợi ý của AI là bản nháp — không có gì tự động trở thành Canon.
 
 ![Status](https://img.shields.io/badge/status-alpha-orange) ![License](https://img.shields.io/badge/license-MIT-blue) ![Backend](https://img.shields.io/badge/backend-FastAPI-009688) ![Frontend](https://img.shields.io/badge/frontend-Next.js%2015-000)
 
@@ -14,6 +14,7 @@ Most AI writing apps make the model the author. This one makes the model a *fast
 
 - **The author is the source of truth.** AI output is always a draft — it only becomes canon through an explicit review/approval step.
 - **Two directions, one tool.** Write yourself and ask AI to discuss/expand a passage — or run a whole wave of chapters through the pipeline, then repair: deterministic continuity scan → AI deep-check per chapter → keep-the-value conflict fixes → selection-scoped rewrite of just the paragraph that's wrong.
+- **Speed is the point; slop is the enemy.** The pipeline is built to catch AI's usual failure modes — POV drift, duplicated openings, forgotten threads, continuity contradictions — with deterministic checkers (code, not another LLM's opinion) and author-gated fixes. Fast generation, human taste.
 - **Continuity is data, not vibes.** Characters, locations, abilities, relationships, canon facts, story states, knowledge states (who knows what, since when) and narrative threads are tracked in a story database that AI is *constrained* by — not trusted to remember.
 - **Long-form scale.** Hundreds of chapters stay manageable via a volume → arc → chapter → scene hierarchy, layered summaries, repair operations that shift the whole narrative axis atomically, and context manifests that show exactly what the model received.
 - **Honest about limits.** Provider capability tiers adapt prompt sizes to what your API actually tolerates; slow gateways get small windows and graceful retries instead of silent truncation.
