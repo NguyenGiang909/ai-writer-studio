@@ -73,6 +73,7 @@ export default async function ProjectLayout({
           openThreads={openThreads}
           pendingCount={suggestions.length}
         />
+        <div className="console-slot" id="console-slot" />
         {children}
         <Suspense fallback={<aside className="right" />}>
           <RightPanel
