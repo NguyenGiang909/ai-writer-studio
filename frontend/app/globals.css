@@ -99,22 +99,23 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .editor-shell>.editor-wrap{grid-column:2;max-width:none;margin:0}
 .editor-side-r{grid-column:3}
 .cast-rail{display:none}
-.cast-head{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:800;padding:2px 4px 8px}
+.cast-head{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:800;padding:0 4px 6px;flex:0 0 auto}
 .cast-inline{margin:6px 0 18px}
 .cast-inline .cast-counts{margin-left:auto;font-size:11px;color:var(--muted);font-weight:700}
 .cast-inline-body{padding-top:8px}
 @media(min-width:1810px){
-  .cast-rail{display:block;grid-column:1;justify-self:end;align-self:start;
-    width:208px;margin:44px 18px 0 0;position:sticky;top:80px;
-    max-height:calc(100vh - 112px);overflow-y:auto;overflow-x:hidden;
+  /* fixed vì .main nuốt scroll-context (overflow) nên sticky không bám;
+     left = mép trái editor − rail − gap: 288 + (vw−638−790)/2 − 14 − 224 = 50vw/100 − 664 */
+  .cast-rail{display:flex;flex-direction:column;position:fixed;
+    top:158px;left:calc(50vw - 664px);width:224px;height:calc(100vh - 174px);overflow:hidden;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
-    padding:10px 8px;box-shadow:var(--shadow)}
+    padding:8px 7px;box-shadow:var(--shadow)}
   .cast-inline{display:none}
 }
-.cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 9px;font-size:12px;outline:none;margin:4px 0 8px}
+.cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:5px 8px;font-size:12px;outline:none;margin:0 0 6px;flex:0 0 auto}
 .cast-filter:focus{border-color:var(--teal)}
 .cast-group{margin:2px 0 6px}
-.cast-group[open]{max-height:300px;overflow-y:auto;overflow-x:hidden}
+.cast-group[open]{max-height:240px;overflow-y:auto;overflow-x:hidden}
 .cast-group>summary{display:flex;align-items:center;gap:6px;justify-content:space-between;cursor:pointer;font-size:12.5px;font-weight:700;color:var(--muted);padding:5px 2px;list-style:none}
 .cast-group>summary::-webkit-details-marker{display:none}
 .cast-group>summary::after{content:"▸";flex:0 0 auto;color:var(--muted);font-size:11px;transition:transform .15s}
@@ -122,8 +123,8 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .cast-group>summary:hover{color:var(--ink)}
 .cast-group>summary>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cast-group[open]>summary{color:var(--ink)}
-.cast-sub{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 2px}
-.cast-row{display:flex;align-items:flex-start;gap:8px;padding:4px 6px;border-radius:7px;font-size:12.5px;cursor:pointer;line-height:1.35;flex-wrap:wrap}
+.cast-sub{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 4px 2px}
+.cast-row{display:flex;align-items:flex-start;gap:7px;padding:3px 5px;border-radius:7px;font-size:12px;cursor:pointer;line-height:1.35;flex-wrap:wrap}
 .cast-row:hover{background:var(--paper2)}
 .cast-row.on{background:var(--gold2);color:var(--ink)}
 .cast-row input{width:14px;height:14px;accent-color:var(--teal);flex:0 0 auto;margin:1px 0 0}
@@ -131,15 +132,17 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 .cast-row small{color:var(--muted);font-size:11px;flex-basis:100%;padding-left:22px;margin-top:-3px}
 .cast-hint{font-size:11px;color:var(--muted);margin:8px 4px 4px;line-height:1.5}
 
-/* console chương — sections hợp nhất trong 1 card (kiểu TUI panel) */
-.console-sec{border-top:1px solid var(--line);margin-top:9px;padding-top:7px}
-.console-sec:first-of-type{border-top:0;margin-top:0;padding-top:0}
-.console-label{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:0 4px 6px}
-.cast-chips{display:flex;flex-wrap:wrap;gap:4px;padding:0 2px 8px}
-.cast-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:99px;padding:2px 6px 2px 9px;font-size:11.5px;background:var(--gold2);color:var(--ink)}
-.cast-chip button{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:13px;line-height:1;padding:0}
+/* console chương — panel kín full-height: Dàn vai cuộn khi quá dài, Nhật ký chiếm phần dư */
+.console-sec{border-top:1px solid var(--line);margin-top:7px;padding-top:5px}
+.console-sec:first-of-type{border-top:0;margin-top:0;padding-top:0;flex:0 1 auto;min-height:0;overflow-y:auto}
+.console-sec.log{flex:1;min-height:48px;display:flex;flex-direction:column;overflow:hidden}
+.log-list{flex:1;min-height:0;overflow-y:auto}
+.console-label{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:0 4px 5px}
+.cast-chips{display:flex;flex-wrap:wrap;gap:3px;padding:0 2px 6px}
+.cast-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:99px;padding:1px 5px 1px 8px;font-size:11px;background:var(--gold2);color:var(--ink)}
+.cast-chip button{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:12px;line-height:1;padding:0}
 .cast-chip button:hover{color:var(--red)}
-.log-row{display:flex;gap:7px;align-items:baseline;padding:3px 4px;font-size:11.5px;border-radius:5px}
+.log-row{display:flex;gap:6px;align-items:baseline;padding:2px 4px;font-size:11px;border-radius:5px}
 .log-row time{font-family:ui-monospace,'Cascadia Mono',monospace;color:var(--muted);flex:0 0 auto;font-size:10.5px}
 .log-row .log-task{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
 

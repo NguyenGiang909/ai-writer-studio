@@ -55,7 +55,7 @@ export default function ChapterCastPanel({
     let dead = false;
     const pull = () =>
       getJSON(`/api/v1/projects/${projectId}/ai/turns?limit=60`)
-        .then((d) => { if (!dead) setTurns((d.turns ?? []).filter((x: Turn) => scopeIds.has(x.scope_id)).slice(0, 9)); })
+        .then((d) => { if (!dead) setTurns((d.turns ?? []).filter((x: Turn) => scopeIds.has(x.scope_id)).slice(0, 16)); })
         .catch(() => {});
     pull();
     const iv = setInterval(pull, 20000);
@@ -142,18 +142,20 @@ export default function ChapterCastPanel({
           {!abilities.length && <p className="subtle">{t(lang, "Chưa có năng lực — tạo ở mục Năng lực")}</p>}
         </details>
       </section>
-      <section className="console-sec">
+      <section className="console-sec log">
         <div className="console-label">{t(lang, "Nhật ký")}</div>
-        {turns.length === 0 && <p className="subtle" style={{ padding: "0 4px" }}>{t(lang, "Chưa có hoạt động AI trong chương")}</p>}
-        {turns.map((x) => {
-          const [ic, lb] = TASK_META[x.task] ?? ["·", x.task];
-          return (
-            <div key={x.id} className="log-row" title={x.provider}>
-              <time>{hhmm(x.created_at)}</time>
-              <span className="log-task">{ic} {t(lang, lb)}</span>
-            </div>
-          );
-        })}
+        <div className="log-list">
+          {turns.length === 0 && <p className="subtle" style={{ padding: "0 4px" }}>{t(lang, "Chưa có hoạt động AI trong chương")}</p>}
+          {turns.map((x) => {
+            const [ic, lb] = TASK_META[x.task] ?? ["·", x.task];
+            return (
+              <div key={x.id} className="log-row" title={x.provider}>
+                <time>{hhmm(x.created_at)}</time>
+                <span className="log-task">{ic} {t(lang, lb)}</span>
+              </div>
+            );
+          })}
+        </div>
       </section>
     </>
   );
