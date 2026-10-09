@@ -23,6 +23,36 @@
 - What-if merge creates AuthorDecision only; it does not mutate Canon/manuscript.
 - Provider secret is server-side; public view exposes hint only.
 
+## 2026-10 — Post-M10 hardening (dogfooded on a real 55-chapter novel)
+
+Writer-facing features shipped since the M10 milestone, all exercised end-to-end
+on a live project (~116k words) rather than unit tests alone:
+
+- **Audit & repair**: 7 new deterministic checkers (`CANON_CONFLICT`,
+  `STATE_CONFLICT`, `STATE_REGRESSION`, `LOCATION_DRIFT`, `PHASE_LEAK`,
+  `MISSING_EXTRACTION`, `SCENE_NO_NARR`); `audit_findings` table (mig 0025) +
+  `POST /chapters/{id}/deep-check`; `services/repair.py` — chapter insert with
+  narrative-axis shift, re-extract, delete+compact; "Giữ giá trị này" conflict
+  resolution; `scenes/{id}/ai-fix` with preview→apply.
+- **Selection-scoped revision**: textarea selection → fragment-only AI rewrite
+  (~1k prompt vs ~12k whole scene — avoids 60s gateway timeouts), preview,
+  offset-verified splice, auto snapshot.
+- **API capability tier**: `provider_credentials.tier` (mig 0026) —
+  low/standard/strong, auto-inferred per provider (kiraai=low, major APIs=strong,
+  custom=standard), user-overridable. Deep-check window sizing reads the tier
+  instead of hardcoding provider names.
+- **Versions / export / search / reading**: `scene_versions` with restore,
+  JSON + Markdown export, full-text search with deep links, per-chapter
+  reading mode, AI turn history with prune, layered summary coverage dashboard,
+  `characters/assist`.
+- **UX fixes from screenshot review**: no toast spam on tab switch, inline
+  markdown in chat replies, draft cards preserve paragraph breaks, scroll-to-
+  selection, FastAPI `on_event` → lifespan.
+
+Test suite: **155 passed**. Known debt: `datetime.utcnow()` deprecations
+(needs data migration before switching to tz-aware), KiraAI gateway can still
+stall under load (retry/skip degrades gracefully).
+
 ## 2026-09-24 — Backend ↔ Frontend integration checkpoint
 
 ### Backend

@@ -31,29 +31,29 @@ ai ở đâu, skill gì, hố nào OPEN, canon nào active — tại thời đi�
 
 ## GĐ-α · Nền temporal (điều kiện cho mọi thứ sau)
 
-- [ ] α1 `Scene.story_time` + `narrative_order` + migration + SceneEditor fields
-- [ ] α2 Convention `StoryState`: `entity_type` = character/location/item;
+- [x] α1 `Scene.story_time` + `narrative_order` + migration + SceneEditor fields
+- [x] α2 Convention `StoryState`: `entity_type` = character/location/item;
       `key` = lifecycle/location/ownership/ability; ghi qua UI nhân vật
-- [ ] α3 `services/state.py`: `state_at(entity, story_time)` — state mới nhất ≤ t
+- [x] α3 `services/state.py`: `state_at(entity, story_time)` — state mới nhất ≤ t
 - [ ] α4 `KnowledgeState.knower_type="reader"` hỗ trợ từ UI
 
 ## GĐ-β · Constraint Manifest (prevent before generation)
 
-- [ ] β1 `services/constraints.py`: `must_respect` / `may_use` / `must_not_invent`
+- [x] β1 `services/constraints.py`: `must_respect` / `may_use` / `must_not_invent`
       từ StoryState + Thread OPEN + KnowledgeState theo scene.story_time
-- [ ] β2 Inject manifest vào `build_story_prompt` (writing/revision), trước Canon
-- [ ] β3 Manifest hiện trong UI — tác giả thấy rõ AI bị ràng gì
+- [x] β2 Inject manifest vào `build_story_prompt` (writing/revision), trước Canon
+- [x] β3 Manifest hiện trong UI — tác giả thấy rõ AI bị ràng gì
 
 ## GĐ-γ · Continuity Checker mở rộng (detect after generation)
 
-- [ ] γ1 `DEAD_CHARACTER_APPEARANCE` — reuse extraction F2 để biết ai có mặt;
+- [x] γ1 `DEAD_CHARACTER_APPEARANCE` — reuse extraction F2 để biết ai có mặt;
       ngoại lệ: scene_type flashback/dream/memory
-- [ ] γ2 `KNOWLEDGE_LEAK` check theo story_time (fix flashback false-positive)
-- [ ] γ3 `STALE_THREAD` narrative debt — warning, không bắt buộc; nhắc khi
+- [x] γ2 `KNOWLEDGE_LEAK` check theo story_time (fix flashback false-positive)
+- [x] γ3 `STALE_THREAD` narrative debt — warning, không bắt buộc; nhắc khi
       nhân vật liên quan đang có mặt ("dịp reinforce")
-- [ ] γ4 `LOCATION_CONFLICT` — char PRISON mà xuất hiện CAPITAL không có event
-- [ ] γ5 `ABILITY_NOT_UNLOCKED` — ability unlocked_at > scene.story_time
-- [ ] γ6 Check sau `ai/complete` writing → issues đính kèm response
+- [x] γ4 `LOCATION_CONFLICT` — char PRISON mà xuất hiện CAPITAL không có event
+- [x] γ5 `ABILITY_NOT_UNLOCKED` — ability unlocked_at > scene.story_time
+- [x] γ6 Check sau `ai/complete` writing → issues đính kèm response
 
 ## GĐ-δ · Thread/Intent nghiệp vụ
 
@@ -63,9 +63,19 @@ ai ở đâu, skill gì, hố nào OPEN, canon nào active — tại thời đi�
 
 ## GĐ-ε · What-if + Retcon impact
 
-- [ ] ε1 `impact_preview` đi ngược dependency graph (scene/thread/knowledge/plan)
-- [ ] ε2 Branch snapshot; merge → chỉ sinh AuthorDecision
+- [x] ε1 `impact_preview` đi ngược dependency graph (scene/thread/knowledge/plan)
+- [x] ε2 Branch snapshot; merge → chỉ sinh AuthorDecision
 - [ ] ε3 UI so sánh branch A/B
+
+## Đã ship ngoài plan GĐ-α..ε
+
+- **Audit dò lỗi**: `audit_findings` + `POST /chapters/{id}/deep-check` (AI soi cả chương → findings persist) + UI `ChapterDeepCheck` trang Review
+- **Repair**: `chapters/insert` (chèn chương, dời trục narrative), `reextract`, `DELETE ?compact=`; "Giữ giá trị này" + `scenes/{id}/ai-fix` có preview
+- **Sửa đoạn chọn**: bôi đen fragment → AI chỉ viết lại đoạn đó (~1k prompt thay vì cả chương), splice an toàn có verify
+- **API capability tier**: `provider_credentials.tier` low/standard/strong auto+override → deep-check adapt window theo năng lực gateway thật
+- **Scene versions**: snapshot prose mỗi PATCH (gom burst <90s), restore 1-click
+- **Export/Search/Reading**: JSON dump, `.md` bản thảo, full-text search có deep-link, chế độ đọc theo chương
+- **AI turns / Summaries coverage / Character assist**: lịch sử AI xoá được, dashboard coverage tóm tắt nhiều tầng, `characters/assist` dựng hồ sơ từ prose
 
 ## GĐ-ζ · Sản phẩm hoá
 
