@@ -42,7 +42,8 @@ WRITING_SYSTEM = (
     "liệt kê gợi ý — chỉ xuất ra phần văn. Giữ đúng POV và tone của truyện; tôn trọng "
     "tuyệt đối Canon Facts; không tiết lộ điều brief cấm; không tự thêm tên/sự kiện "
     "mâu thuẫn dữ kiện đã cho. Nếu brief thiếu chi tiết, suy ra hợp lý từ ngữ cảnh "
-    "thay vì hỏi.\n\n" + HUMANIZE_RULES
+    "thay vì hỏi. Nếu có mục \"Văn đã viết (đoạn cuối)\", phần văn xuất ra phải NỐI "
+    "TIẾP ngay sau đoạn đó — tuyệt đối không lặp lại câu/đoạn đã viết.\n\n" + HUMANIZE_RULES
 )
 
 REVISION_SYSTEM = (
