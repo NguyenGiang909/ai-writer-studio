@@ -77,7 +77,7 @@ export default function ChapterCastPanel({
         <input className="cast-filter" placeholder={t(lang, "Lọc tên…")}
                value={q} onChange={(e) => setQ(e.target.value)} />
       )}
-      <details className="cast-group" open={cast.characters.length > 0}>
+      <details className="cast-group">
         <summary>
           <span>♙ {t(lang, "Nhân vật trong chương")}</span>
           <b className="badge-sm">{cast.characters.length || ""}</b>
@@ -86,7 +86,7 @@ export default function ChapterCastPanel({
           .map((c) => row("characters", c.id, c.name, c.role ?? undefined))}
         {!characters.length && <p className="subtle">{t(lang, "Chưa có nhân vật — tạo ở mục Nhân vật")}</p>}
       </details>
-      <details className="cast-group" open={cast.threads.length + cast.abilities.length > 0}>
+      <details className="cast-group">
         <summary>
           <span>≋ {t(lang, "Hố & năng lực")}</span>
           <b className="badge-sm">{(cast.threads.length + cast.abilities.length) || ""}</b>
