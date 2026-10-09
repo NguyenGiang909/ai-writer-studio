@@ -284,6 +284,7 @@ const EN: Record<string, string> = {
   "Bôi đen 1 đoạn để chỉ sửa đoạn đó": "Highlight a passage to revise only that part",
   "Đang chọn {n} ký tự — AI chỉ sửa đoạn này:": "Selected {n} chars — AI revises only this passage:",
   "Bỏ chọn": "Clear selection",
+  "Cuộn tới đoạn đang chọn": "Scroll to selected passage",
   "✎ Sửa đoạn đang chọn": "✎ Revise selected passage",
   "Thay thế đoạn chọn": "Replace selected passage",
   "Văn đã đổi — bôi đen lại đoạn cần sửa": "Prose changed — re-select the passage to revise",

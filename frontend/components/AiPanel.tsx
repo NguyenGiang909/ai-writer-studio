@@ -54,6 +54,28 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   // tránh 60s gateway trên cảnh dài + không đụng phần còn lại).
   // Đọc cả DOM selection lúc mount/mở block vì user hay bôi đen TRƯỚC khi
   // mở panel (event đã dispatch trước khi listener tồn tại).
+  // Cuộn trang tới đoạn đang bôi đen — textarea auto-height nên phải đo
+  // offset caret qua mirror-div (không scrollIntoView được trong textarea).
+  function scrollToSelection() {
+    const ta = document.querySelector<HTMLTextAreaElement>(".manuscript-input");
+    if (!ta || !sel) return;
+    const cs = getComputedStyle(ta);
+    const mirror = document.createElement("div");
+    mirror.style.cssText =
+      `position:absolute;visibility:hidden;left:-9999px;top:0;` +
+      `width:${ta.clientWidth}px;white-space:pre-wrap;word-wrap:break-word;` +
+      `font:${cs.font};line-height:${cs.lineHeight};padding:${cs.padding};`;
+    mirror.textContent = ta.value.slice(0, sel.start);
+    const marker = document.createElement("span");
+    marker.textContent = "​";
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+    const y = ta.getBoundingClientRect().top + window.scrollY + marker.offsetTop - window.innerHeight / 3;
+    document.body.removeChild(mirror);
+    window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    ta.focus();
+    ta.setSelectionRange(sel.start, sel.end);
+  }
   function readDomSelection() {
     const ta = document.querySelector<HTMLTextAreaElement>(".manuscript-input");
     if (!ta || ta.selectionEnd <= ta.selectionStart) { setSel(null); return; }
@@ -343,6 +365,8 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
             <div className="hint" style={{ marginBottom: 8 }}>
               {t(lang, "Đang chọn {n} ký tự — AI chỉ sửa đoạn này:", { n: sel.end - sel.start })}{" "}
               <em>{sel.text.length > 70 ? sel.text.slice(0, 70) + "…" : sel.text}</em>{" "}
+              <button type="button" className="btn ghost small" onClick={scrollToSelection}
+                title={t(lang, "Cuộn tới đoạn đang chọn")}>{t(lang, "→")}</button>
               <button type="button" className="btn ghost small" onClick={() => setSel(null)}>{t(lang, "Bỏ chọn")}</button>
             </div>
           )}

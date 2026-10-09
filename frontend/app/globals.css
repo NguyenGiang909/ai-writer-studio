@@ -149,7 +149,8 @@ body{font-size:16px}
 .nav-item small{margin-left:auto;font-size:11.5px;background:var(--paper2);border-radius:99px;padding:1px 8px;font-weight:700;color:var(--muted)}
 .nav-extra>summary{list-style:none;cursor:pointer;user-select:none}
 .nav-extra>summary::-webkit-details-marker{display:none}
-.nav-extra>summary::after{content:'⌄';float:right;font-size:10px;margin-top:2px}
+.nav-extra>summary{display:flex;justify-content:space-between;align-items:center}
+.nav-extra>summary::after{content:'⌄';font-size:10px}
 .nav-extra[open]>summary::after{content:'⌃'}
 .review-item p{font-size:13.5px;line-height:1.55}
 .card>p{margin:0 0 10px;line-height:1.6}

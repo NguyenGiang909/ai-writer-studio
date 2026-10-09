@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -19,7 +20,12 @@ from app.api.routes.export import router as export_router
 from app.api.routes.search import router as search_router
 from app.api.routes.authoring import router as authoring_router
 
-app = FastAPI(title="AI Writer Studio", version="recovery-m1")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await ensure_schema()
+    yield
+
+app = FastAPI(title="AI Writer Studio", version="recovery-m1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,7 +59,6 @@ app.include_router(search_router, prefix="/api/v1")
 app.include_router(authoring_router, prefix="/api/v1")
 
 
-@app.on_event("startup")
 async def ensure_schema():
     """Dev-mode schema ensure: create missing tables and add missing columns.
 

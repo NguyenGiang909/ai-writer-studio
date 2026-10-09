@@ -1,5 +1,5 @@
 
-import json,re
+import asyncio,json,re
 from fastapi import APIRouter,Depends,HTTPException,Body
 from sqlalchemy import select,delete,func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -543,47 +543,105 @@ async def deep_check_chapter(pid:str,chid:str,db:AsyncSession=Depends(get_db)):
     cons=await build_constraints(db,pid,Scene(narrative_order=ch.order_index))
     blk=["=== TRẠNG THÁI ĐÃ CHỐT TẠI CHƯƠNG NÀY ==="]+ \
         [f"- {x}" for x in cons.get("must_respect",[])[:15]] if cons.get("must_respect") else []
-    parts=[f"=== CHƯƠNG {ch.order_index}/{total}: \"{ch.title}\""
-           + (f" — Hồi \"{arc.title}\"" if arc else "") + " ==="]+blk
-    for i,sc in enumerate(scs):
-        seg=[f'--- Cảnh {i+1}: "{sc.title or "?"}"'
-             + (f"\nXương cảnh: {sc.skeleton}" if sc.skeleton else "")]
-        prose=(sc.prose or "").strip()
-        if prose:
-            cut=prose[:3500]+("…[cắt bớt]" if len(prose)>3500 else "")
-            seg.append(f"Văn:\n{cut}")
-        else: seg.append("(chưa có văn)")
-        parts.append("\n".join(seg))
-    prompt="\n\n".join(parts)+"\n\nTrả JSON theo schema đã nêu trong system."
-    try:
-        result=await ModelRouter(db).complete(
-            ModelRequest(task="review",prompt=prompt,project_id=pid,system=_DEEP_SYSTEM))
-    except RuntimeError as e: raise HTTPException(503,str(e))
-    txt=(result.text or "").strip()
-    m=re.search(r"\[.*\]",txt,re.DOTALL)
-    found=[]
-    if m:
+    hdr="\n\n".join(
+        [f"=== CHƯƠNG {ch.order_index}/{total}: \"{ch.title}\""
+         + (f" — Hồi \"{arc.title}\"" if arc else "") + " ==="] + blk)
+
+    # Scene dài chia thành windows tại ranh đoạn — bản cũ cắt [:3500]
+    # khiến đuôi chương (chỗ lỗi hay nằm) không được soi; mỗi call ~4.5k
+    # cũng giữ prompt dưới ngưỡng gateway 60s.
+    def _windows(text: str, max_len: int = 4500) -> list:
+        paras = text.split("\n\n")
+        out, cur = [], ""
+        for p in paras:
+            if cur and len(cur) + len(p) + 2 > max_len:
+                out.append(cur); cur = p
+            else:
+                cur = f"{cur}\n\n{p}" if cur else p
+        if cur: out.append(cur)
+        # đoạn đơn vẫn quá dài (ít gặp) → cắt cứng
+        return [w if len(w) <= max_len * 1.4 else w[: max_len * 1.4] for w in out] or [text[:max_len]]
+
+    segs: list[str] = []
+    for i, sc in enumerate(scs):
+        prose = (sc.prose or "").strip()
+        skel = f"\nXương cảnh: {sc.skeleton}" if sc.skeleton else ""
+        if not prose:
+            segs.append(f'--- Cảnh {i+1}: "{sc.title or "?"}"{skel}\n(chưa có văn)')
+            continue
+        wins = _windows(prose)
+        for k, w in enumerate(wins):
+            tag = f" [phần {k+1}/{len(wins)}]" if len(wins) > 1 else ""
+            segs.append(f'--- Cảnh {i+1}: "{sc.title or "?"}"{tag}{skel}\nVăn:\n{w}')
+
+    # gom segments vào prompts ≤ ~6500c, cap 6 calls/chương
+    prompts: list[str] = []
+    cur, curlen = [hdr], len(hdr)
+    for seg in segs:
+        if curlen + len(seg) + 2 > 6500 and len(cur) > 1 and len(prompts) < 5:
+            prompts.append(cur); cur, curlen = [hdr], len(hdr)
+        cur.append(seg); curlen += len(seg) + 2
+    prompts.append(cur)
+
+    router = ModelRouter(db)
+    title2id = {s.title: s.id for s in scs if s.title}
+    found: list = []
+    seen_msg: set = set()
+    provider = model = ""
+    replies: list[str] = []
+    skipped = 0
+    for prt in prompts:
+        prompt = "\n\n".join(prt) + "\n\nTrả JSON theo schema đã nêu trong system."
+        result = None
+        for attempt in range(3):
+            try:
+                result = await router.complete(
+                    ModelRequest(task="review", prompt=prompt,
+                                 project_id=pid, system=_DEEP_SYSTEM))
+                break
+            except RuntimeError:
+                if attempt < 2:
+                    await asyncio.sleep(4 + attempt * 6)
+        if result is None:
+            skipped += 1
+            continue
+        provider, model = result.provider or "", result.model or ""
+        txt = (result.text or "").strip()
+        replies.append(txt)
+        m = re.search(r"\[.*\]", txt, re.DOTALL)
+        if not m:
+            continue
         try:
-            raw=json.loads(m.group())
-            title2id={s.title:s.id for s in scs if s.title}
-            for it in (raw if isinstance(raw,list) else []):
-                if not isinstance(it,dict) or not it.get("message"): continue
-                found.append({
-                    "code":str(it.get("code") or "AI_REVIEW")[:40],
-                    "severity":it.get("severity") if it.get("severity") in ("error","warning","info") else "warning",
-                    "message":str(it["message"])[:400],
-                    "suggestion":str(it.get("suggestion") or "")[:300],
-                    "scene_id":title2id.get(it.get("scene"))})
-        except (json.JSONDecodeError,TypeError): pass
-    f=AuditFinding(project_id=pid,scope_type="chapter",scope_id=chid,
-                   issues_json=json.dumps(found,ensure_ascii=False))
+            raw = json.loads(m.group())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for it in (raw if isinstance(raw, list) else []):
+            if not isinstance(it, dict) or not it.get("message"):
+                continue
+            key = re.sub(r"\s+", " ", str(it["message"]))[:50].lower()
+            if key in seen_msg:
+                continue
+            seen_msg.add(key)
+            found.append({
+                "code": str(it.get("code") or "AI_REVIEW")[:40],
+                "severity": it.get("severity") if it.get("severity") in ("error", "warning", "info") else "warning",
+                "message": str(it["message"])[:400],
+                "suggestion": str(it.get("suggestion") or "")[:300],
+                "scene_id": title2id.get(it.get("scene"))})
+
+    f = AuditFinding(project_id=pid, scope_type="chapter", scope_id=chid,
+                     issues_json=json.dumps(found, ensure_ascii=False))
     db.add(f)
-    db.add(AiTurn(project_id=pid,scope_id=chid,task="deep_check",
-                  prompt_excerpt=prompt[:4000],reply_text=txt[:4000],
-                  provider=result.provider or "",model=result.model or ""))
+    db.add(AiTurn(project_id=pid, scope_id=chid, task="deep_check",
+                  prompt_excerpt=(f"[{len(prompts)} calls] " + prompts[0][0])[:4000],
+                  reply_text="\n---\n".join(replies)[:4000],
+                  provider=provider, model=model))
     await db.commit()
-    return {"finding_id":f.id,"issues":found,"count":len(found),
-            "provider":result.provider,"model":result.model}
+    out = {"finding_id": f.id, "issues": found, "count": len(found),
+           "provider": provider, "model": model, "calls": len(prompts)}
+    if skipped:
+        out["skipped_windows"] = skipped
+    return out
 
 @router.post("/projects/{pid}/scenes/{sid}/ai-fix")
 async def ai_fix_scene(pid:str,sid:str,p:dict=Body(...),db:AsyncSession=Depends(get_db)):
