@@ -97,7 +97,7 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
    trống dành cho công cụ sau — rail là cột riêng, không đè lên văn */
 .editor-shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,790px) minmax(0,1fr);align-items:start}
 .editor-shell>.editor-wrap{grid-column:2;max-width:none;margin:0}
-.editor-side-r{grid-column:3}
+.tool-rail{display:none}
 .cast-rail{display:none}
 .cast-head{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--gold);font-weight:800;padding:0 4px 6px;flex:0 0 auto}
 .cast-inline{margin:6px 0 18px}
@@ -111,12 +111,18 @@ html[data-theme="dark"] .chat-msg.ai{background:#3a3428}
 @media(min-width:1700px){
   .editor-shell{grid-template-columns:minmax(0,1fr) 226px minmax(0,790px) minmax(0,1fr)}
   .editor-shell>.editor-wrap{grid-column:3}
-  .editor-shell>.editor-side-r{grid-column:4}
   .cast-rail{display:flex;flex-direction:column;grid-column:2;
     position:sticky;top:110px;height:fit-content;max-height:calc(100vh - 126px);overflow:auto;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:10px}
   .cast-inline{display:none}
+}
+/* rail phải đối xứng chỉ khi đủ chỗ: .main ≥ ~1242px (viewport ≥ ~1900) */
+@media(min-width:1900px){
+  .editor-shell{grid-template-columns:minmax(0,1fr) 226px minmax(0,790px) 226px minmax(0,1fr)}
+  .editor-shell>.tool-rail{display:block;grid-column:4;justify-self:start;width:226px;
+    position:sticky;top:110px;height:fit-content;min-height:180px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
 }
 .cast-filter{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:5px 8px;font-size:12px;outline:none;margin:0 0 6px;flex:0 0 auto}
 .cast-filter:focus{border-color:var(--teal)}

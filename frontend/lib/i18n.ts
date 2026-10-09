@@ -1003,4 +1003,5 @@ const EN: Record<string, string> = {
   "Hồ sơ nhân vật": "Character profile",
   "Mở rộng cảnh": "Expand scene",
   "Cảnh chưa đặt tên": "Untitled scene",
+  "Công cụ": "Tools",
 };

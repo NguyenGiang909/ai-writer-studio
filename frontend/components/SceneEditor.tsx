@@ -468,7 +468,9 @@ export default function SceneEditor({
           </nav>
         )}
       </article>
-        <div className="editor-side-r" aria-hidden="true" />
+        <aside className="tool-rail" aria-hidden="true">
+          <div className="cast-head">{t(lang, "Công cụ")}</div>
+        </aside>
       </div>
       {showHistory && (
         <SceneHistory
