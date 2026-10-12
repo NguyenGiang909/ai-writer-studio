@@ -24,22 +24,19 @@ from app.api.routes.style import router as style_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_schema()
-    # seed demo lần đầu (cài mới) — chạy nền để không chặn health-check của shell
+    # seed demo lần đầu (cài mới) — CHẶN trước yield: /health chỉ bật sau khi
+    # seed xong → splash Tauri đợi đúng lúc, app mở ra là có sẵn dữ liệu demo
+    # (cost 1 lần duy nhất; boot sau projects≠∅ → thoát ngay).
     try:
-        import asyncio as _asyncio
         from app.services.seed_demo import seed_if_empty
         from app.db.session import SessionLocal
-        async def _seed():
-            async with SessionLocal() as db:
-                await seed_if_empty(db)
-        _t = _asyncio.create_task(_seed())
-        _seed_tasks.add(_t); _t.add_done_callback(_seed_tasks.discard)
+        async with SessionLocal() as db:
+            await seed_if_empty(db)
     except Exception:
         pass
     yield
 
 app = FastAPI(title="AI Writer Studio", version="recovery-m1", lifespan=lifespan)
-_seed_tasks: set = set()
 
 app.add_middleware(
     CORSMiddleware,
