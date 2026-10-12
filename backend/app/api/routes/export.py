@@ -110,6 +110,11 @@ async def import_project(file: UploadFile = File(...), db: AsyncSession=Depends(
         raise HTTPException(400,"file không phải JSON hợp lệ")
     if data.get("format")!="ai-writer-studio-export":
         raise HTTPException(400,"không phải file export của app (thiếu format)")
+    return await do_import(db,data)
+
+
+async def do_import(db:AsyncSession,data:dict)->dict:
+    """Lõi import — seeder gọi trực tiếp với dict đã parse."""
     psrc=data.get("project") or {}
     if not psrc.get("name"): raise HTTPException(400,"export thiếu project.name")
 

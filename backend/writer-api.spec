@@ -11,7 +11,7 @@ a = Analysis(
     ['desktop_main.py'],
     pathex=[],
     binaries=[],
-    datas=[('presets', 'presets')],
+    datas=[('presets', 'presets'), ('seed_data', 'seed_data')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

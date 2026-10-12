@@ -93,6 +93,7 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - `ensure_schema()` lo nâng cấp SQLite (create_all + ALTER ADD COLUMN) — cột mới phải nullable
 - **D1 Tauri** (`package/tauri/`): shell Rust spawn sidecar (port-probe tái dùng, không trùng), splash→navigate :3300, tray Mở/Thoát (X=ẩn tray), Exit→kill con. Build `npx tauri build` → NSIS ~65MB currentUser + MSI. Node sidecar cần env PORT=3300 HOSTNAME=127.0.0.1. `.gitignore` mở `package/` cho source, vẫn ignore binary/target/gen
 - `.ps1` phải **ASCII-only hoặc UTF-8 BOM** — PS5.1 đọc no-BOM là ANSI, em-dash `—`/dấu tiếng Việt vỡ parse
+- **Seed demo (v0.1.2+)**: `backend/seed_data/*.json` (export đã gắn `[DEMO]` + notice trong description) → `services/seed_demo.seed_if_empty` chạy nền ở lifespan khi `projects` rỗng — cài mới tự có 2 truyện mẫu, xoá hết demo cũng không seed lại. Spec datas: `presets/` + `seed_data/` (bundle path `_MEIPASS/<dir>` ↔ dev `backend/<dir>` qua `parents[N]`)
 
 ## Style memory — Novel Humanizer v3 (migration 0030)
 
