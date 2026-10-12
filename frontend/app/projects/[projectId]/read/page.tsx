@@ -39,7 +39,14 @@ export default async function ReadPage({
   const ch = idx >= 0 ? chapters[idx] : chapters[0];
   const prev = idx > 0 ? chapters[idx - 1] : null;
   const next = idx >= 0 && idx < chapters.length - 1 ? chapters[idx + 1] : null;
-  const words = ch.scenes.reduce(
+  // tree chỉ trả scene mỏng — văn chương đang đọc fetch riêng (nhẹ ~10x)
+  let scenes: any[] = [];
+  try {
+    scenes = await getJSON(`${base}/chapters/${ch.id}/scenes`);
+  } catch {
+    scenes = ch.scenes ?? [];
+  }
+  const words = scenes.reduce(
     (n: number, s: any) => n + ((s.prose || "").trim() ? (s.prose as string).trim().split(/\s+/).length : 0), 0);
 
   const opts = chapters.map((c: any) => ({ value: c.id, label: c.title }));
@@ -62,9 +69,9 @@ export default async function ReadPage({
         </div>
         <h1 className="read-title">{ch.title}</h1>
         <p className="subtle" style={{ textAlign: "center", marginTop: -8 }}>
-          {words} {t(lang, "từ")} · {ch.scenes.length} {t(lang, "Cảnh")}
+          {words} {t(lang, "từ")} · {scenes.length} {t(lang, "Cảnh")}
         </p>
-        {ch.scenes.map((s: any, i: number) => (
+        {scenes.map((s: any, i: number) => (
           <section key={s.id} className="read-scene">
             {s.title && <h3 className="read-scene-title">{s.title}</h3>}
             {(s.prose || "").trim() ? (

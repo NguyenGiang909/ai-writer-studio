@@ -42,8 +42,7 @@ async def test_approve_ai_draft_appends_to_scene_prose(client,proj):
         "payload":{"text":"Đoạn văn AI đề xuất."}})).json()
     r=(await client.post(f"/api/v1/projects/{pid}/suggestions/{s['id']}/approve")).json()
     assert r["materialized"] is True
-    tree=(await client.get(f"/api/v1/projects/{pid}/manuscript")).json()
-    scene=[x for c in tree["chapters"] for x in c["scenes"] if x["id"]==sid][0]
+    scene=(await client.get(f"/api/v1/projects/{pid}/scenes/{sid}")).json()
     assert "Đoạn văn AI đề xuất." in scene["prose"]
 
 @pytest.mark.asyncio
@@ -54,3 +53,22 @@ async def test_pending_filter(client,proj):
     await client.post(f"/api/v1/projects/{pid}/suggestions/{s['id']}/reject")
     pending=(await client.get(f"/api/v1/projects/{pid}/suggestions",params={"status":"pending"})).json()
     assert len(pending)==1 and pending[0]["change_type"]=="a"
+
+
+@pytest.mark.asyncio
+async def test_revision_review_replaces_original_and_detects_conflicts(client,proj):
+    pid=proj['project']['id'];sid=proj['scene']['id'];base=f'/api/v1/projects/{pid}'
+    async def propose(payload):
+        return (await client.post(base+'/suggestions',json={'scene_id':sid,'change_type':'ai_draft','payload':payload})).json()['id']
+    draft=await propose({'text':'Revised','operation':'replace_selection','original_text':'Some','selection_start':0,'selection_end':4})
+    assert (await client.post(base+'/suggestions/'+draft+'/approve')).status_code==200
+    scene=(await client.get(base+'/scenes/'+sid)).json()
+    assert scene['prose']=='Revised prose.'
+    conflict=await propose({'text':'Other','operation':'replace_scene','original_text':'Some prose.'})
+    assert (await client.post(base+'/suggestions/'+conflict+'/approve')).status_code==409
+    pending=(await client.get(base+'/suggestions?status=pending')).json()
+    assert conflict in [x['id'] for x in pending]
+    full=await propose({'text':'Whole replacement','operation':'replace_scene','original_text':'Revised prose.'})
+    assert (await client.post(base+'/suggestions/'+full+'/approve')).status_code==200
+    scene=(await client.get(base+'/scenes/'+sid)).json()
+    assert scene['prose']=='Whole replacement'

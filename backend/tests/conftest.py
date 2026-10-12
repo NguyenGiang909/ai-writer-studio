@@ -1,5 +1,10 @@
-import os
-os.environ["DATABASE_URL"]="sqlite+aiosqlite:///:memory:"
+import os, tempfile
+# File tạm thay :memory: — pooled connections của aiosqlite mỗi cái là
+# một :memory: DB riêng (job nền ghi, request đọc → không thấy nhau);
+# file + WAL chia sẻ được giữa mọi session.
+_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp.close()
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp.name}"
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from app.main import app

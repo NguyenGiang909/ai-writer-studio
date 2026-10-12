@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.models import Project
 from app.models.authoring import AuthoringRun, AuthoringStep, EntityProvenance
 from app.schemas.extras import (AuthoringStartRequest, AuthoringRegenerateRequest,
-                                AuthoringApproveRequest)
+                                AuthoringApproveRequest, AuthoringRunPatchRequest)
 from app.services import authoring as eng
 
 router = APIRouter()
@@ -236,16 +236,51 @@ async def pause(pid: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/projects/{pid}/authoring/pause-after-wave")
 async def pause_after_wave(pid: str, db: AsyncSession = Depends(get_db)):
-    """Cờ 1-lần: hồi đang sóng viết xong thì dừng checkpoint thay vì sang hồi kế.
-    Khác pause (dừng ngay giữa step) — cái này cho tác giả canh điểm dừng sạch."""
+    """Cờ BỀN: bật → dừng checkpoint sau MỖI ranh giới sóng tới khi tắt.
+    Khác pause (dừng ngay giữa step) — cái này cho tác giả canh điểm dừng sạch.
+    Đặt được cả khi awaiting_review (C4/C16 — trước chỉ nhận lúc running nên
+    bấm ngay sau checkpoint bị 409, cờ mất dấu)."""
     run = await _latest_run(db, pid)
     if not run:
         raise HTTPException(404, "chưa có run")
-    if run.status != "running":
-        raise HTTPException(409, f"run đang {run.status} — chỉ đặt cờ khi đang chạy")
+    if run.status not in {"running", "awaiting_review"}:
+        raise HTTPException(409, f"run đang {run.status} — chỉ đặt cờ khi run còn sống")
     run.pause_after_wave = not run.pause_after_wave  # toggle — bấm lại để huỷ
     await db.commit()
     return {"pause_after_wave": run.pause_after_wave}
+
+
+@router.patch("/projects/{pid}/authoring/run")
+async def patch_run(pid: str, p: AuthoringRunPatchRequest,
+                    db: AsyncSession = Depends(get_db)):
+    """Sửa cấu hình run đang sống (running/paused/awaiting_review) mà không
+    restart — target_chapters, cờ pause, chế độ call/goal (C3). Engine đọc
+    run mỗi tick nên thay đổi ăn ngay ở step kế."""
+    run = await _latest_run(db, pid)
+    if not run:
+        raise HTTPException(404, "chưa có run")
+    if run.status not in {"running", "paused", "awaiting_review"}:
+        raise HTTPException(409, f"run đang {run.status} — chỉ sửa khi run còn sống")
+    changed = {}
+    if p.target_chapters is not None:
+        run.target_chapters = p.target_chapters
+        changed["target_chapters"] = p.target_chapters
+    if p.words_per_scene is not None:
+        run.words_per_scene = p.words_per_scene
+        changed["words_per_scene"] = p.words_per_scene
+    if p.call_mode is not None:
+        run.call_mode = p.call_mode
+        changed["call_mode"] = p.call_mode
+    if p.goal_mode is not None:
+        run.goal_mode = p.goal_mode
+        changed["goal_mode"] = p.goal_mode
+    if p.pause_after_wave is not None:
+        run.pause_after_wave = p.pause_after_wave
+        changed["pause_after_wave"] = p.pause_after_wave
+    if not changed:
+        raise HTTPException(400, "không có field nào để sửa")
+    await db.commit()
+    return {"status": run.status, "changed": changed}
 
 
 @router.post("/projects/{pid}/authoring/resume")
@@ -255,9 +290,11 @@ async def resume(pid: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "chưa có run")
     if run.status not in {"paused", "failed"}:
         raise HTTPException(409, f"run đang {run.status}")
-    # reset bộ đếm lỗi — step fail cũ không chặn lần thử lại sau khi đã sửa
+    # reset bộ đếm lỗi — step fail/interrupted cũ không chặn lần thử lại sau khi
+    # đã sửa; interrupted KHÔNG xoá thì attempts cap (≥8) kẹt run vĩnh viễn
     await db.execute(delete(AuthoringStep).where(
-        AuthoringStep.run_id == run.id, AuthoringStep.status == "failed"))
+        AuthoringStep.run_id == run.id,
+        AuthoringStep.status.in_(("failed", "interrupted"))))
     run.status = "running"
     run.last_error = None
     await db.commit()

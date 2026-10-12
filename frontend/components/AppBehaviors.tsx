@@ -18,6 +18,17 @@ export default function AppBehaviors({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let dragged: HTMLElement | null = null;
+    const mobileNav = window.matchMedia("(max-width: 760px)");
+    function syncNavigation() {
+      const button = document.querySelector<HTMLButtonElement>(".menu-toggle");
+      const expanded = mobileNav.matches
+        ? document.querySelector(".left")?.classList.contains("open")
+        : !document.querySelector(".shell")?.classList.contains("nav-collapsed");
+      const label = t(getLangClient(), expanded ? "Ẩn điều hướng" : "Mở điều hướng");
+      button?.setAttribute("aria-expanded", String(!!expanded));
+      button?.setAttribute("aria-label", label);
+      button?.setAttribute("title", label);
+    }
 
     async function persistOrder(listEl: Element) {
       const rows = [...listEl.querySelectorAll<HTMLElement>(".chapter-row")];
@@ -45,7 +56,9 @@ export default function AppBehaviors({ projectId }: { projectId: string }) {
       }
 
       if (el.closest(".menu-toggle")) {
-        document.querySelector(".left")?.classList.toggle("open");
+        if (mobileNav.matches) document.querySelector(".left")?.classList.toggle("open");
+        else document.querySelector(".shell")?.classList.toggle("nav-collapsed");
+        syncNavigation();
         return;
       }
       if (el.closest(".ai-toggle")) {
@@ -66,14 +79,16 @@ export default function AppBehaviors({ projectId }: { projectId: string }) {
       }
 
       // nav clicked on mobile → close drawer
-      if (el.closest(".nav-item") && window.innerWidth < 760) {
+      if (el.closest(".nav-item") && mobileNav.matches) {
         document.querySelector(".left")?.classList.remove("open");
+        syncNavigation();
       }
     }
 
     function onKeydown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         document.querySelector(".left")?.classList.remove("open");
+        syncNavigation();
         document.querySelector(".right")?.classList.remove("open");
       }
     }
@@ -163,6 +178,9 @@ export default function AppBehaviors({ projectId }: { projectId: string }) {
       persistSort(list as HTMLElement, dragged);
     }
 
+    syncNavigation();
+    mobileNav.addEventListener("change", syncNavigation);
+    window.addEventListener("writer:lang", syncNavigation);
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKeydown);
     document.addEventListener("dragstart", onDragStart);
@@ -171,6 +189,8 @@ export default function AppBehaviors({ projectId }: { projectId: string }) {
     document.addEventListener("dragleave", onDragLeave);
     document.addEventListener("drop", onDrop);
     return () => {
+      mobileNav.removeEventListener("change", syncNavigation);
+      window.removeEventListener("writer:lang", syncNavigation);
       document.removeEventListener("click", onClick);
       document.removeEventListener("keydown", onKeydown);
       document.removeEventListener("dragstart", onDragStart);

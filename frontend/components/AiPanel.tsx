@@ -5,6 +5,7 @@ import { toast } from "../lib/toast";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type Brief = {
   goal?: string; outline?: string; target_words?: number;
@@ -37,6 +38,31 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   const [phase, setPhase] = useState<"idle" | "saving" | "model">("idle");
   const [elapsed, setElapsed] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const memoryKey = `writer:ai-panel:v1:${projectId}:${sceneId ?? "project"}`;
+  const [loadedKey, setLoadedKey] = useState("");
+  const [originalProse, setOriginalProse] = useState("");
+  const [sending, setSending] = useState(false);
+  const [suggestionId, setSuggestionId] = useState("");
+  useEffect(() => {
+    let cache: any = null;
+    try { cache = JSON.parse(localStorage.getItem(memoryKey) || "null"); } catch {}
+    setDraft(typeof cache?.draft === "string" ? cache.draft : "");
+    setSent(cache?.sent === true); setSuggestionId(cache?.suggestionId || "");
+    setReviseNotes(cache?.reviseNotes || ""); setReviseMode(cache?.reviseMode === true);
+    setReviseSel(cache?.reviseSel || null); setOriginalProse(cache?.originalProse || "");
+    setManifest(Array.isArray(cache?.manifest) ? cache.manifest : []);
+    setIssues(Array.isArray(cache?.issues) ? cache.issues : []);
+    setError(""); setLoadedKey(memoryKey);
+  }, [memoryKey]);
+  useEffect(() => {
+    if (loadedKey !== memoryKey) return;
+    try { localStorage.setItem(memoryKey, JSON.stringify({draft,sent,suggestionId,reviseNotes,reviseMode,reviseSel,originalProse,brief,manifest,issues})); }
+    catch { setError(t(lang,"Không lưu được bộ nhớ nháp trên trình duyệt. Hãy sao chép bản nháp trước khi rời trang.")); }
+  }, [memoryKey,loadedKey,draft,sent,suggestionId,reviseNotes,reviseMode,reviseSel,originalProse,brief,manifest,issues]);
+  function rememberResult(text: string, revision: boolean, original = "") {
+    // Store the completed response even if the panel was unmounted during the call.
+    try { localStorage.setItem(memoryKey,JSON.stringify({draft:text,sent:false,suggestionId:"",reviseNotes,reviseMode:revision,reviseSel:revision?sel:null,originalProse:original,brief,manifest:[],issues:[]})); } catch {}
+  }
 
   useEffect(() => {
     if (phase === "idle") return;
@@ -94,12 +120,18 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   }, [projectId, sceneId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    let dead = false;
+    try {
+      const cache=JSON.parse(localStorage.getItem(memoryKey)||"null");
+      if(cache?.brief){setBrief(cache.brief);return;}
+    } catch {}
     if (!sceneId) { setBrief({ freedom: "medium", target_words: 1400 }); return; }
-    getJSON(`/api/v1/projects/${projectId}/manuscript`).then((tree: any) => {
-      const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
+    getJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`).then((scene: any) => {
+      if (dead) return;
       if (scene?.brief) setBrief({ freedom: "medium", target_words: 1400, ...scene.brief });
       else setBrief({ freedom: "medium", target_words: 1400 });
     }).catch(() => {});
+    return () => { dead = true; };
   }, [projectId, sceneId]);
 
   function set<K extends keyof Brief>(k: K, v: Brief[K]) {
@@ -139,7 +171,9 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
         prompt: composePrompt(b),
         scene_id: sceneId ?? null,
       }, ac.signal);
-      setDraft(typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r));
+      const resultText=typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r);
+      rememberResult(resultText,false);
+      setDraft(resultText);
       if (Array.isArray(r.context)) setManifest(r.context);
       if (Array.isArray(r.issues)) setIssues(r.issues);
       toast(r.provider === "fake" ? t(lang, "Bản nháp từ fake provider — chưa thay đổi Canon") : t(lang, "Đã tạo bản nháp — chưa thay đổi Canon"));
@@ -164,9 +198,9 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
     const ac = new AbortController(); abortRef.current = ac;
     setReviseSel(sel);
     try {
-      const tree = await getJSON(`/api/v1/projects/${projectId}/manuscript`);
-      const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
+      const scene = await getJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`);
       if (!scene?.prose?.trim()) { setError(t(lang, "Cảnh chưa có văn — dùng 'Tạo bản mở rộng' thay vì sửa")); return; }
+      setOriginalProse(scene.prose);
       setPhase("model");
       let prompt: string;
       if (sel) {
@@ -182,7 +216,9 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
         scene_id: sceneId,
         prompt,
       }, ac.signal);
-      setDraft(typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r));
+      const resultText=typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r);
+      rememberResult(resultText,true,scene.prose);
+      setDraft(resultText);
       if (Array.isArray(r.context)) setManifest(r.context);
       if (Array.isArray(r.issues)) setIssues(r.issues);
       toast(t(lang, "Đã có bản sửa — xem và thay thế nếu ưng"));
@@ -197,8 +233,7 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   async function replaceProse() {
     if (!sceneId || !draft) return;
     if (reviseSel) {
-      const tree = await getJSON(`/api/v1/projects/${projectId}/manuscript`);
-      const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
+      const scene = await getJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`);
       const prose: string = scene?.prose ?? "";
       let { start, end, text } = reviseSel;
       if (prose.slice(start, end) !== text) {
@@ -222,8 +257,7 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
 
   async function insert() {
     if (!sceneId || !draft) return;
-    const tree = await getJSON(`/api/v1/projects/${projectId}/manuscript`);
-    const scene = tree.chapters.flatMap((c: any) => c.scenes).find((s: any) => s.id === sceneId);
+    const scene = await getJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`);
     const prose = (scene?.prose ? scene.prose + "\n\n" : "") + draft;
     await patchJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`, { prose });
     setDraft("");
@@ -232,13 +266,20 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
   }
 
   async function accept() {
-    await postJSON(`/api/v1/projects/${projectId}/suggestions`, {
-      scene_id: sceneId ?? null,
-      change_type: "ai_draft",
-      payload: { text: draft, brief },
-    });
-    setSent(true);
-    toast(t(lang, "Đã đưa vào hàng Review · chờ duyệt"));
+    if (sending || sent || !draft.trim()) return;
+    setSending(true);setError("");
+    try {
+      const result=await postJSON(`/api/v1/projects/${projectId}/suggestions`, {
+        scene_id: sceneId ?? null, change_type: "ai_draft",
+        payload: { text: draft, brief, operation: reviseMode ? (reviseSel ? "replace_selection" : "replace_scene") : "append",
+          original_text: reviseSel?.text ?? originalProse,
+          selection_start: reviseSel?.start, selection_end: reviseSel?.end },
+      });
+      setSent(true);setSuggestionId(result.id);
+      try { const cache=JSON.parse(localStorage.getItem(memoryKey)||"{}");localStorage.setItem(memoryKey,JSON.stringify({...cache,sent:true,suggestionId:result.id})); } catch {}
+      toast(t(lang, "Đã đưa vào hàng Review · chờ duyệt"));
+    } catch(e) {setError(e instanceof Error?e.message:String(e));}
+    finally {setSending(false);}
   }
 
   return (
@@ -376,10 +417,10 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
           </button>
         </div>
       </details>
-      {draft && (
+      {loadedKey === memoryKey && draft && (
         <div className="ai-output open">
           <div className="draft-card">
-            <h3>{reviseMode ? t(lang, "Bản sửa AI · chưa lưu") : t(lang, "Bản nháp AI · chưa lưu")}</h3>
+            <h3>{sent ? t(lang,"Đã gửi Review") : t(lang,"Bản nháp AI · đã nhớ trên trình duyệt")}</h3>
             {issues.length > 0 && (
               <div className="notice" style={{ marginBottom: 8 }}>
                 {t(lang, "⚠ {n} vấn đề continuity trên bản nháp:", { n: issues.length })}
@@ -390,19 +431,20 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
             <div className="draft-actions">
               <button className="btn" onClick={() => { setDraft(""); setReviseMode(false); setReviseSel(null); toast(t(lang, "Đã bỏ bản nháp AI")); }}>{t(lang, "Bỏ")}</button>
               {reviseMode ? (
-                <button className="btn" onClick={replaceProse} disabled={!sceneId}>
+                <button className="btn" onClick={replaceProse} disabled={!sceneId || sent || sending}>
                   {reviseSel ? t(lang, "Thay thế đoạn chọn") : t(lang, "Thay thế bản thảo")}
                 </button>
               ) : (
-                <button className="btn" onClick={insert} disabled={!sceneId}>{t(lang, "Chèn để sửa")}</button>
+                <button className="btn" onClick={insert} disabled={!sceneId || sent || sending}>{t(lang, "Chèn để sửa")}</button>
               )}
-              <button className="btn gold" onClick={accept} disabled={sent}>
-                {sent ? t(lang, "Đã gửi Review") : t(lang, "Chấp nhận")}
+              <button className="btn gold" onClick={accept} disabled={sent || sending}>
+                {sent ? t(lang, "Đã gửi Review") : t(lang, "Gửi Review")}
               </button>
             </div>
           </div>
+          {sent && <Link className="btn" href={`/projects/${projectId}/review#rev-pending`}>{t(lang,"Mở đề xuất chờ duyệt")} →</Link>}
           <small style={{ color: "var(--muted)" }}>
-            {t(lang, "Chấp nhận chỉ đưa nội dung vào hàng Review. Các thay đổi story state vẫn cần duyệt riêng.")}
+            {t(lang, "Gửi Review để duyệt sau. Bản sửa sẽ thay đúng đoạn gốc khi duyệt; nếu văn gốc đã đổi, ứng dụng sẽ yêu cầu kiểm tra lại.")}
           </small>
         </div>
       )}

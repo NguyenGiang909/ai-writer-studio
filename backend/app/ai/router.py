@@ -8,6 +8,7 @@ Resolution order (D1):
 4. FakeProvider fallback when settings.allow_fake_provider (dev/test).
 """
 
+import asyncio
 from dataclasses import dataclass
 
 import httpx
@@ -22,6 +23,11 @@ from app.models.account import ModelPreference, ProviderCredential, UsageLog
 from app.services.credentials import decrypt_secret
 
 DEV_USER = "local-author"
+
+# C1: giới hạn call đồng thời tới provider — engine + job nền (deep-check,
+# summaries) từng tranh nhau gây 504/timeout hàng loạt. 2 slot: engine giữ
+# nhịp, job nền xen kẽ được mà không dội gateway.
+_PROVIDER_SEM = asyncio.Semaphore(2)
 
 # task mới chưa có preference riêng → kế thừa pref của task gần nhất,
 # tránh rơi xuống FakeProvider trên run thật
@@ -135,7 +141,8 @@ class ModelRouter:
         provider, pref = await self._provider_for(request)
         if provider:
             try:
-                result = await provider.complete(request)
+                async with _PROVIDER_SEM:
+                    result = await provider.complete(request)
             except httpx.HTTPError as e:
                 raise RuntimeError(f"Provider '{pref.provider}' request failed: {e}")
             await self._log_usage(request, pref.provider, result.model or pref.model, result)

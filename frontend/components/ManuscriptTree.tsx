@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "● Bản nháp",
   writing: "● Bản nháp",
 };
-const words = (s?: string | null) => (s?.trim() ? s.trim().split(/\s+/).length : 0);
+// scene trong tree là bản mỏng: dùng s.words (server đếm sẵn) thay prose
 const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(".", ",")}k` : String(n));
 
 function chapterName(c: any) {
@@ -79,7 +79,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
     else looseChapters.push(c);
   }
   const totalWords = chapters.reduce(
-    (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + words(s.prose), 0),
+    (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + (s.words ?? 0), 0),
     0
   );
 
@@ -87,7 +87,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
     if (!matchChapter(c)) return null;
     const dot = STATUS_DOT[c.status] ?? "plan";
     const label = t(lang, STATUS_LABEL[c.status] ?? "○ Kế hoạch");
-    const w = c.scenes.reduce((n: number, s: any) => n + words(s.prose), 0);
+    const w = c.scenes.reduce((n: number, s: any) => n + (s.words ?? 0), 0);
     const pov = povName(c);
     const active = c.scenes.some((s: any) => s.id === selected);
     const open = active || openIds.has(c.id);
@@ -140,7 +140,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
                   {s.title || t(lang, "Cảnh không tên")}
                   {aiSet.has(s.id) && <i className="prov-ai" title={t(lang, "AI tạo")}>✦</i>}
                 </span>
-                <small>{s.scene_type ? sceneTypeLabel(s.scene_type, lang) : words(s.prose) ? t(lang, "Đã viết") : t(lang, "Chưa viết")}</small>
+                <small>{s.scene_type ? sceneTypeLabel(s.scene_type, lang) : (s.words ?? 0) ? t(lang, "Đã viết") : t(lang, "Chưa viết")}</small>
               </Link>
             ))}
             <PostForm
@@ -196,7 +196,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
           ...(arcsByVolume[v.id] ?? []).flatMap((a: any) => chaptersByArc[a.id] ?? []),
         ];
         const vWords = vChapters.reduce(
-          (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + words(s.prose), 0),
+          (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + (s.words ?? 0), 0),
           0
         );
         const vAnyMatch =
@@ -228,7 +228,7 @@ export default function ManuscriptTree({ projectId, volumes, arcs, chapters, cha
         if (!looseChapters.length || (needle && !looseMatch.length)) return null;
         const looseClosed = !needle && closedGroups.has("__loose");
         const looseWords = looseChapters.reduce(
-          (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + words(s.prose), 0), 0);
+          (n: number, c: any) => n + c.scenes.reduce((m: number, s: any) => m + (s.words ?? 0), 0), 0);
         return (
           <div>
             <button className="tree-node-toggle" aria-expanded={!looseClosed} onClick={() => toggleGroup("__loose")}>

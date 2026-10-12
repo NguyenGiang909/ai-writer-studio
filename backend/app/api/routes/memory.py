@@ -142,14 +142,17 @@ async def generate_summary(pid:str,p:SummaryGenerateRequest,db:AsyncSession=Depe
     text,narr_end=await _scope_source_text(db,pid,p.scope_type,p.scope_id)
     if not text: raise HTTPException(400,"scope has no content to summarize")
     system,prompt,_=await build_story_prompt(db,pid,"summarization",text)
+    import time as _time
+    _t0=_time.monotonic()
     try:
         result=await ModelRouter(db).complete(
             ModelRequest(task="summarization",prompt=prompt,project_id=pid,system=system))
     except RuntimeError as e: raise HTTPException(503,str(e))
     summary=(result.text or "").strip()
     db.add(AiTurn(project_id=pid,scope_id=p.scope_id,task="summarization",
-                  prompt_excerpt=text[:1500],reply_text=summary[:4000],
-                  provider=result.provider or "",model=result.model or ""))
+                  prompt_excerpt=text[:1500],reply_text=summary[:20000],
+                  provider=result.provider or "",model=result.model or "",
+                  latency_ms=int((_time.monotonic()-_t0)*1000)))
     obj=(await db.scalars(select(StorySummary).where(StorySummary.project_id==pid,
         StorySummary.scope_type==p.scope_type,StorySummary.scope_id==p.scope_id))).first()
     if obj:

@@ -9,7 +9,7 @@ import { toast } from "../lib/toast";
 
 type Stats = { chapters: number; words: string; threads: number };
 const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(".", ",")}k` : String(n));
-const words = (s?: string | null) => (s?.trim() ? s.trim().split(/\s+/).length : 0);
+// scene trong tree là bản mỏng — đếm qua s.words (server đếm sẵn)
 const initials = (name: string) =>
   name.split(/\s+/).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
 
@@ -35,7 +35,7 @@ export default function ProjectModal({ currentId, currentName }: { currentId: st
                 getJSON(`/api/v1/projects/${p.id}/manuscript`),
                 getJSON(`/api/v1/projects/${p.id}/threads`).catch(() => []),
               ]);
-              const w = tree.chapters.flatMap((c: any) => c.scenes).reduce((n: number, s: any) => n + words(s.prose), 0);
+              const w = tree.chapters.flatMap((c: any) => c.scenes).reduce((n: number, s: any) => n + (s.words ?? 0), 0);
               return [p.id, { chapters: tree.chapters.length, words: fmtK(w), threads: threads.filter((t: any) => t.status === "OPEN").length }];
             } catch {
               return [p.id, { chapters: 0, words: "0", threads: 0 }];

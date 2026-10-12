@@ -64,6 +64,10 @@ class Ability(Base):
     cost: Mapped[str|None]=mapped_column(Text)
     conditions: Mapped[str|None]=mapped_column(Text)
     counters: Mapped[str|None]=mapped_column(Text)
+    # chủ nhân kĩ năng — nhân vật này xuất hiện trong chương thì kĩ năng
+    # tự inject vào prompt (trước chỉ inject khi ghim tay qua cast_json — C11)
+    owner_character_id: Mapped[str|None]=mapped_column(
+        ForeignKey("characters.id",ondelete="SET NULL"),index=True)
 
 class Relationship(Base):
     __tablename__="relationships"

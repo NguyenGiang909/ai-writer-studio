@@ -83,8 +83,13 @@ export default function RightPanel({
     ? t(lang, 'Cảnh "{t}" — {c}', { t: scene.title ?? t(lang, "(chưa đặt tên)"), c: scene.chapter.title })
     : section?.[1] ? t(lang, section[1]) : t(lang, "tổng quan bản thảo");
 
+  useEffect(() => {
+    try { const saved=localStorage.getItem(`writer:right-tab:${projectId}`);if(saved==="discuss"||saved==="expand"||saved==="check")setTab(saved); } catch {}
+  }, [projectId]);
+
   function pick(tab: Tab) {
     setTab(tab);
+    try {localStorage.setItem(`writer:right-tab:${projectId}`,tab);} catch {}
   }
 
   async function suggestSection() {

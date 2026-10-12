@@ -692,12 +692,13 @@ async def test_rolling_waves_arc_by_arc(client):
 
 @pytest.mark.asyncio
 async def test_pause_after_wave_stops_at_boundary(client):
-    """Cờ 1-lần: hồi 1 viết xong → checkpoint chờ duyệt (không complete),
-    cờ tự tắt; approve → hồi 2 chạy tiếp."""
+    """Cờ BỀN (C4/C16): bật một lần → checkpoint ở MỖI ranh giới sóng;
+    wave_paused_for chống bắn lặp cùng ranh giới; tắt cờ giữa lúc chờ duyệt
+    được (awaiting_review) → sóng cuối chạy hết."""
     pid = (await client.post("/api/v1/projects", json={
         "name": "T", "description": "premise sẵn"})).json()["id"]
     async with SessionLocal() as db:
-        a1, a2 = await _seed_ready_for_build(db, pid, 2)
+        a1, a2, a3 = await _seed_ready_for_build(db, pid, 3)
     (await client.post(f"/api/v1/projects/{pid}/authoring/start",
                        json={})).raise_for_status()
     st = (await _status(client, pid))["run"]
@@ -713,7 +714,7 @@ async def test_pause_after_wave_stops_at_boundary(client):
     assert r == "checkpoint"  # không phải complete — đây là ranh giới sóng
     cur = (await _status(client, pid))["run"]
     assert cur["status"] == "awaiting_review" and cur["phase"] == "build"
-    assert cur["pause_after_wave"] is False  # cờ 1-lần đã tự tắt
+    assert cur["pause_after_wave"] is True   # cờ bền — không tự tắt
     assert cur["wave_arc"] == a1            # sóng vừa dừng là hồi 1
     # hồi 1 đã viết xong thật
     async with SessionLocal() as db:
@@ -722,7 +723,18 @@ async def test_pause_after_wave_stops_at_boundary(client):
             if (await db.get(Chapter, s.chapter_id)).arc_id == a1]
         assert scs and all((s.prose or "").strip() for s in scs)
 
-    # approve → hồi 2 build tiếp → hết việc → complete
+    # approve → sóng 2 chạy → cờ còn bật nên dừng LẦN NỮA ở ranh giới a2→a3
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    assert r == "checkpoint"
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review" and cur["wave_arc"] == a2
+
+    # tắt cờ ngay trong awaiting_review (trước đây 409) → approve → hết sóng → complete
+    r = await client.post(f"/api/v1/projects/{pid}/authoring/pause-after-wave")
+    assert r.status_code == 200 and r.json()["pause_after_wave"] is False
     (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
     r = "step"
     while r == "step":
@@ -730,8 +742,10 @@ async def test_pause_after_wave_stops_at_boundary(client):
     cur = (await _status(client, pid))["run"]
     assert cur["status"] == "complete"
     async with SessionLocal() as db:
-        assert f"outline.chapters.{a2}" in {s.step_key for s in (await db.scalars(
+        keys = {s.step_key for s in (await db.scalars(
             select(AuthoringStep).where(AuthoringStep.project_id == pid))).all()}
+        assert f"outline.chapters.{a2}" in keys
+        assert f"outline.chapters.{a3}" in keys
 
 
 @pytest.mark.asyncio
@@ -754,11 +768,10 @@ async def test_regen_wave_only_deletes_current_arc(client):
     while r == "step":
         r = await eng.tick(run_id)
     assert (await _status(client, pid))["run"]["status"] == "awaiting_review"
-    # approve → tick 1 lần để sóng 2 thật sự bắt đầu (wave_arc→a2),
-    # rồi mới đặt cờ — đặt sớm hơn sẽ bắn ngay ở ranh giới sóng 1→2 đang chờ
+    # approve → tick 1 lần để sóng 2 thật sự bắt đầu (wave_arc→a2).
+    # Cờ bền nên vẫn đang bật — không cần (và không được) đặt lại
     (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
     assert await eng.tick(run_id) == "step"
-    await client.post(f"/api/v1/projects/{pid}/authoring/pause-after-wave")
     r = "step"
     while r == "step":
         r = await eng.tick(run_id)
@@ -879,3 +892,121 @@ async def test_goal_mode_end_no_wave_stop_and_validation(client):
     # không checkpoint ranh giới sóng nào — đi thẳng complete
     assert (await _status(client, pid))["run"]["status"] == "complete"
 
+
+
+# ---------- C22: hard-stop target_chapters + C3: sửa config giữa run ----------
+
+@pytest.mark.asyncio
+async def test_target_chapters_hard_stop(client):
+    """C22: target=2, mỗi hồi fake sinh 2 chương → hồi 1 đủ target thì
+    run complete, KHÔNG dàn hồi 2, không bước sang chương 3+."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        a1, a2 = await _seed_ready_for_build(db, pid, 2)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={"target_chapters": 2})).raise_for_status()
+    st = (await _status(client, pid))["run"]
+    run_id = st["id"]
+    assert st["target_chapters"] == 2
+
+    r = "step"
+    while r == "step":
+        r = await eng.tick(run_id)
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "complete"        # không checkpoint rỗng
+    async with SessionLocal() as db:
+        keys = {s.step_key for s in (await db.scalars(
+            select(AuthoringStep).where(AuthoringStep.project_id == pid))).all()}
+        assert f"outline.chapters.{a2}" not in keys   # hồi 2 không bao giờ dàn
+        assert not (await db.scalars(select(Chapter).where(
+            Chapter.arc_id == a2))).all()              # và không có chương nào
+        chs = (await db.scalars(select(Chapter).where(
+            Chapter.project_id == pid))).all()
+        assert len(chs) == 2
+        scs = (await db.scalars(select(Scene).where(
+            Scene.project_id == pid))).all()
+        assert all((s.prose or "").strip() for s in scs)  # viết xong mới complete
+
+
+@pytest.mark.asyncio
+async def test_patch_run_config_live(client):
+    """C3: PATCH /authoring/run đổi target/wps/call_mode/goal/pause giữa
+    run đang sống — engine đọc run mỗi tick nên ăn ngay. Giá trị lạ → 422."""
+    pid = (await client.post("/api/v1/projects", json={
+        "name": "T", "description": "premise sẵn"})).json()["id"]
+    async with SessionLocal() as db:
+        await _seed_ready_for_build(db, pid, 2)
+    (await client.post(f"/api/v1/projects/{pid}/authoring/start",
+                       json={})).raise_for_status()
+
+    r = await client.patch(f"/api/v1/projects/{pid}/authoring/run",
+                           json={"target_chapters": 4, "words_per_scene": 900,
+                                 "call_mode": "fast", "goal_mode": "waves",
+                                 "pause_after_wave": True})
+    assert r.status_code == 200
+    ch = r.json()["changed"]
+    assert ch["target_chapters"] == 4 and ch["call_mode"] == "fast"
+    assert ch["goal_mode"] == "waves" and ch["pause_after_wave"] is True
+    st = (await _status(client, pid))["run"]
+    assert st["target_chapters"] == 4 and st["pause_after_wave"] is True
+
+    # giá trị lạ bị chặn
+    for bad in ({"call_mode": "turbo"}, {"goal_mode": "chaos"},
+                {"target_chapters": -3}, {"words_per_scene": 10}):
+        r = await client.patch(f"/api/v1/projects/{pid}/authoring/run", json=bad)
+        assert r.status_code == 422, bad
+    # flow không patchable (đổi dạng sóng giữa run rối step) → 400 no-field
+    r = await client.patch(f"/api/v1/projects/{pid}/authoring/run",
+                           json={"flow": "batch"})
+    assert r.status_code == 400
+    # run complete rồi không sửa được nữa
+    r = "step"
+    while r == "step":
+        r = await eng.tick(st["id"])
+    cur = (await _status(client, pid))["run"]
+    assert cur["status"] == "awaiting_review"  # goal_mode=waves → dừng sóng
+    (await client.post(f"/api/v1/projects/{pid}/authoring/approve")).raise_for_status()
+    r = "step"
+    while r == "step":
+        r = await eng.tick(st["id"])
+    assert (await _status(client, pid))["run"]["status"] == "complete"
+    r = await client.patch(f"/api/v1/projects/{pid}/authoring/run",
+                           json={"target_chapters": 9})
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_chapter_cast_put_validates_ids(client):
+    """C15: PUT cast từ chối id ngoài project (422 có liệt kê), chấp id
+    hợp lệ + dedupe; đọc lại cast_json thấy đúng."""
+    from app.models.narrative import Thread
+    pid = (await client.post("/api/v1/projects", json={"name": "T"})).json()["id"]
+    pid2 = (await client.post("/api/v1/projects", json={"name": "Khác"})).json()["id"]
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid, title="C1", order_index=1)
+        c1 = Character(project_id=pid, name="Trong")
+        c2 = Character(project_id=pid2, name="Ngoài")   # nhân vật project khác
+        th = Thread(project_id=pid, title="Hố", status="OPEN")
+        ab = Ability(project_id=pid, name="Mê Hoặc")
+        db.add_all([ch, c1, c2, th, ab]); await db.commit()
+        chid, ok_id, bad_id, tid, aid = ch.id, c1.id, c2.id, th.id, ab.id
+
+    r = await client.put(f"/api/v1/projects/{pid}/chapters/{chid}/cast",
+                         json={"characters": [ok_id, bad_id], "threads": [tid]})
+    assert r.status_code == 422 and "nhân vật" in r.json()["detail"]
+
+    r = await client.put(f"/api/v1/projects/{pid}/chapters/{chid}/cast",
+                         json={"characters": [ok_id, ok_id], "threads": [tid],
+                               "abilities": [aid]})
+    assert r.status_code == 200
+    cast = r.json()["cast"]
+    assert cast["characters"] == [ok_id] and cast["threads"] == [tid]
+    assert cast["abilities"] == [aid]
+    async with SessionLocal() as db:
+        assert json.loads((await db.get(Chapter, chid)).cast_json)["abilities"] == [aid]
+
+    # id không tồn tại hẳn cũng bị chặn
+    r = await client.put(f"/api/v1/projects/{pid}/chapters/{chid}/cast",
+                         json={"abilities": ["khong-co-that"]})
+    assert r.status_code == 422

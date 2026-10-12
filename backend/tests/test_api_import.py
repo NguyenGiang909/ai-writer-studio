@@ -26,10 +26,12 @@ async def test_import_roundtrip_remaps_ids(client, proj):
     assert new_char["id"] != c["id"] and new_char["name"] == "Khánh"
     aliases = (await client.get(f"/api/v1/projects/{new_pid}/aliases")).json()
     assert aliases[0]["character_id"] == new_char["id"]
-    # scene mới độc lập
+    # scene mới độc lập — tree chỉ trả bản mỏng (không prose), fetch full
     tree = (await client.get(f"/api/v1/projects/{new_pid}/manuscript")).json()
     new_scene = tree["chapters"][0]["scenes"][0]
-    assert new_scene["id"] != sc and new_scene["prose"] == "Some prose."
+    assert new_scene["id"] != sc and new_scene["words"] == 2
+    full = (await client.get(f"/api/v1/projects/{new_pid}/scenes/{new_scene['id']}")).json()
+    assert full["prose"] == "Some prose."
 
 @pytest.mark.asyncio
 async def test_import_twice_no_collision(client, proj):

@@ -9,10 +9,15 @@ import { useLang } from "../lib/use-lang";
 
 type Finding = {
   id: string; scope_id: string; scope_type?: string; scope_label?: string | null;
-  chapter_title?: string | null;
+  chapter_title?: string | null; status?: string;
   chapter_order?: number | null; created_at: string;
   issues: { code: string; severity: string; message: string; suggestion?: string;
             scene_id?: string | null; chapter_id?: string | null; chapter_order?: number | null }[];
+};
+
+type AuditJob = {
+  id: string; status: string; scope_type: string; scope_id: string;
+  result?: any; error?: string | null;
 };
 
 export default function ChapterDeepCheck({
@@ -34,7 +39,9 @@ export default function ChapterDeepCheck({
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState("");
-  const abort = useRef<AbortController | null>(null);
+  const [jobId, setJobId] = useState("");
+  const [jobProg, setJobProg] = useState("");
+  const poll = useRef<ReturnType<typeof setInterval> | null>(null);
   const [fixing, setFixing] = useState("");
   const [fixElapsed, setFixElapsed] = useState(0);
   const [preview, setPreview] = useState<{ sceneId: string; text: string } | null>(null);
@@ -109,28 +116,72 @@ export default function ChapterDeepCheck({
     return () => clearInterval(iv);
   }, [busy]);
 
+  // deep-check giờ là job nền (C10) — POST trả job_id rồi poll status.
+  // Job sống qua reload trang: mount check jobs đang chạy để nối lại poll.
+  function startPoll(jid: string) {
+    setJobId(jid); setBusy(true); setJobProg("");
+    if (poll.current) clearInterval(poll.current);
+    poll.current = setInterval(async () => {
+      try {
+        const j: AuditJob = await getJSON(
+          `/api/v1/projects/${projectId}/audit/jobs/${jid}`);
+        if (j.status === "running") {
+          setJobProg(j.result?.progress ?? "");
+          return;
+        }
+        if (poll.current) clearInterval(poll.current);
+        setBusy(false); setJobId(""); setJobProg("");
+        if (j.status === "failed") {
+          setErr(j.error || t(lang, "Job thất bại"));
+        } else {
+          const r = j.result ?? {};
+          if (r.warnings?.length) setWarns(r.warnings);
+          await reload();
+        }
+      } catch { /* poll lỗi lẻ — vòng sau thử lại */ }
+    }, 3000);
+  }
+  useEffect(() => () => { if (poll.current) clearInterval(poll.current); }, []);
+
+  // nối lại poll khi vào trang mà job cũ còn chạy (đổi trang giữa chừng)
+  useEffect(() => {
+    getJSON(`/api/v1/projects/${projectId}/audit/jobs`)
+      .then((d) => {
+        const j: AuditJob | undefined = (d.jobs ?? [])
+          .find((x: AuditJob) => x.status === "running");
+        if (j) startPoll(j.id);
+      })
+      .catch(() => {});
+  }, [projectId]);
+
   async function run() {
     if (busy) return;
-    setBusy(true); setErr(""); setElapsed(0); setWarns([]);
-    abort.current = new AbortController();
+    setErr(""); setElapsed(0); setWarns([]);
     try {
       if (scope === "chapter") {
         if (!chid) return;
-        await postJSON(`/api/v1/projects/${projectId}/chapters/${chid}/deep-check`, {},
-          abort.current.signal);
+        const r: any = await postJSON(
+          `/api/v1/projects/${projectId}/chapters/${chid}/deep-check`, {});
+        startPoll(r.job_id);
       } else {
         const r: any = await postJSON(`/api/v1/projects/${projectId}/deep-check`,
-          { from_order: fromO, to_order: toO }, abort.current.signal);
-        if (r?.warnings?.length) setWarns(r.warnings);
+          { from_order: fromO, to_order: toO });
+        startPoll(r.job_id);
       }
-      await reload();
     } catch (e: any) {
-      if (e?.name !== "AbortError") setErr(e?.message ?? t(lang, "Lỗi không xác định"));
-    } finally { setBusy(false); }
+      setErr(e?.message ?? t(lang, "Lỗi không xác định"));
+    }
   }
 
   async function remove(id: string) {
     try { await delJSON(`/api/v1/audit/findings/${id}`); await reload(); } catch {}
+  }
+
+  async function setFindingStatus(id: string, st: "dismiss" | "reopen") {
+    try {
+      await postJSON(`/api/v1/projects/${projectId}/audit/findings/${id}/${st}`, {});
+      await reload();
+    } catch {}
   }
 
   return (
@@ -149,7 +200,7 @@ export default function ChapterDeepCheck({
           {t(lang, "Khoảng")}
         </button>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="deep-check-controls">
         {scope === "chapter" ? (
           <select className="input" value={chid} onChange={(e) => setChid(e.target.value)}
             disabled={busy} style={{ minWidth: 240 }}>
@@ -195,9 +246,16 @@ export default function ChapterDeepCheck({
           </button>
         ) : (
           <>
-            <span className="subtle">{t(lang, "Đang soi… {s}s", { s: elapsed })}</span>
-            <button className="btn ghost" onClick={() => abort.current?.abort()}>
-              {t(lang, "Hủy")}
+            <span className="subtle">
+              {jobProg
+                ? t(lang, "Đang soi (job nền) {p} · {s}s", { p: jobProg, s: elapsed })
+                : t(lang, "Đang soi (job nền)… {s}s", { s: elapsed })}
+            </span>
+            <button className="btn ghost"
+              title={t(lang, "Job vẫn chạy tiếp trên server — chỉ ngừng theo dõi")}
+              onClick={() => { if (poll.current) clearInterval(poll.current);
+                               setBusy(false); setJobId(""); }}>
+              {t(lang, "Ngừng theo dõi")}
             </button>
           </>
         )}
@@ -222,7 +280,8 @@ export default function ChapterDeepCheck({
 
       <div className="review-list" style={{ marginTop: 12 }}>
         {findings.map((f) => (
-          <div key={f.id} className="review-item">
+          <div key={f.id} className="review-item"
+               style={f.status === "dismissed" ? { opacity: 0.55 } : undefined}>
             <header>
               <span>
                 <b>{f.scope_label
@@ -232,11 +291,31 @@ export default function ChapterDeepCheck({
                 {f.scope_type === "range" && (
                   <span className="pill" style={{ marginLeft: 6 }}>{t(lang, "Khoảng")}</span>
                 )}
+                {f.status === "dismissed" && (
+                  <span className="pill" style={{ marginLeft: 6 }}>
+                    {t(lang, "Không phải lỗi")}
+                  </span>
+                )}
                 <span className="subtle"> · {(f.created_at ?? "").slice(0, 16).replace("T", " ")}</span>
               </span>
-              <button className="btn ghost small" onClick={() => remove(f.id)}>
-                {t(lang, "Xoá")}
-              </button>
+              <span style={{ display: "inline-flex", gap: 6 }}>
+                {f.status === "dismissed" ? (
+                  <button className="btn ghost small"
+                    title={t(lang, "Mở lại — deep-check sau lại báo motif này")}
+                    onClick={() => setFindingStatus(f.id, "reopen")}>
+                    {t(lang, "Mở lại")}
+                  </button>
+                ) : (
+                  <button className="btn ghost small"
+                    title={t(lang, "Đánh dấu motif này là chủ đích — deep-check sau sẽ không báo lại")}
+                    onClick={() => setFindingStatus(f.id, "dismiss")}>
+                    {t(lang, "Không phải lỗi")}
+                  </button>
+                )}
+                <button className="btn ghost small" onClick={() => remove(f.id)}>
+                  {t(lang, "Xoá")}
+                </button>
+              </span>
             </header>
             {!f.issues.length && <p className="subtle">{t(lang, "Không phát hiện lỗi nào.")}</p>}
             {f.issues.map((i, k) => {

@@ -93,7 +93,29 @@ async def approve_suggestion(pid:str,sid:str,db:AsyncSession=Depends(get_db)):
         if s.scene_id and text.strip():
             scene=await db.get(Scene,s.scene_id)
             if scene and scene.project_id==pid:
-                scene.prose=(scene.prose.rstrip()+"\n\n"+text).lstrip() if scene.prose else text
+                previous_prose=scene.prose
+                operation=payload.get("operation","append")
+                original=payload.get("original_text")
+                if operation=="replace_selection":
+                    if not isinstance(original,str) or not original:
+                        raise HTTPException(422,"Thiếu đoạn gốc cần thay thế")
+                    start=payload.get("selection_start");end=payload.get("selection_end")
+                    if not (isinstance(start,int) and isinstance(end,int) and 0<=start<end<=len(scene.prose) and scene.prose[start:end]==original):
+                        start=scene.prose.find(original)
+                        if start<0 or scene.prose.find(original,start+1)>=0:
+                            raise HTTPException(409,"Văn gốc đã đổi hoặc có nhiều đoạn trùng nhau — kiểm tra lại trước khi duyệt")
+                        end=start+len(original)
+                    scene.prose=scene.prose[:start]+text.strip()+scene.prose[end:]
+                elif operation=="replace_scene":
+                    if not isinstance(original,str) or scene.prose!=original:
+                        raise HTTPException(409,"Văn gốc đã đổi — kiểm tra lại trước khi duyệt")
+                    scene.prose=text
+                elif operation=="append":
+                    scene.prose=(scene.prose.rstrip()+"\n\n"+text).lstrip() if scene.prose else text
+                else:
+                    raise HTTPException(422,"Thao tác bản nháp không hợp lệ")
+                from app.models.manuscript import SceneVersion
+                db.add(SceneVersion(project_id=pid,scene_id=scene.id,title=scene.title,prose=previous_prose))
                 await db.commit()
                 applied=scene
     elif s.change_type=="story_state":

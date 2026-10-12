@@ -107,9 +107,9 @@ export default function PostForm({
         <div key={f.name} className="field" style={{ margin: 0 }}>
           {f.label ? <label>{f.label}</label> : null}
           {f.type === "textarea" || f.type === "json" ? (
-            <textarea name={f.name} placeholder={f.placeholder} required={f.required} rows={3} defaultValue={f.defaultValue} />
+            <textarea name={f.name} aria-label={f.label || f.name} placeholder={f.placeholder} required={f.required} rows={3} defaultValue={f.defaultValue} />
           ) : f.type === "select" || f.type === "scope" || f.type === "entity" ? (
-            <select name={f.name} required={f.required} defaultValue={f.defaultValue ?? f.options?.[0]?.value}>
+            <select name={f.name} aria-label={f.label || f.name} required={f.required} defaultValue={f.defaultValue ?? f.options?.[0]?.value}>
               {f.options?.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -118,11 +118,11 @@ export default function PostForm({
             </select>
           ) : f.type === "checkbox" ? (
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
-              <input name={f.name} type="checkbox" /> {f.label}
+              <input name={f.name} aria-label={f.label || f.name} type="checkbox" /> {f.label}
             </label>
           ) : (
             <input
-              name={f.name}
+              name={f.name} aria-label={f.label || f.name}
               type={f.type === "number" ? "number" : "text"}
               placeholder={f.placeholder}
               required={f.required}

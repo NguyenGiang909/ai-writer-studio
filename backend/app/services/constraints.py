@@ -6,7 +6,7 @@ so the model is told (not asked) what it cannot contradict.
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Scene, Chapter
@@ -150,9 +150,13 @@ async def build_constraints(
             except Exception:
                 pinned_tids = set()
     open_threads = list((await db.scalars(
-        select(Thread).where(Thread.project_id == pid, Thread.status == "OPEN"))).all())
-    open_threads.sort(key=lambda t: 0 if t.id in pinned_tids else 1)
+        select(Thread).where(Thread.project_id == pid, or_(Thread.status == "OPEN", ((Thread.must_resolve == True) | (Thread.important == True)) & Thread.status.notin_(["RESOLVED", "ABANDONED"]))))).all())
+    open_threads.sort(key=lambda t: (not t.must_resolve, not t.important, t.id not in pinned_tids))
     for th in open_threads[:8]:
+        if th.must_resolve:
+            must.append(f"Hố bắt buộc lấp: {th.title} — cần payoff trước khi kết truyện; không ép lấp ngay, không tự đánh dấu xong")
+        elif th.important:
+            may.append(f"Hố quan trọng: {th.title} — cân nhắc tiến triển nếu phù hợp xương cảnh")
         if th.id in pinned_tids:
             must.append(f"Hố '{th.title}' — tác giả chọn cho chương này: để nó "
                         f"bề mặt/nhích tiến nếu xương cảnh cho phép")

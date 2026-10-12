@@ -54,7 +54,7 @@ export default async function LeftNav({
     if (st?.run?.status && st.run.status !== "completed") authoringStatus = st.run.status;
   } catch {}
   return (
-    <aside className="left">
+    <aside className="left" id="project-navigation">
       <div className="mode">
         <button className="active">Writer</button>
         <button>Architect</button>

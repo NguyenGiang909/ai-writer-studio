@@ -29,11 +29,26 @@ class Settings(BaseSettings):
     database_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = ""
-    allow_fake_provider: bool = True
+    allow_fake_provider: bool | None = None
+    build_id: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     def model_post_init(self, _ctx) -> None:
         prod = self.environment != "development"
+        if self.allow_fake_provider is None:
+            # dev/test: cho phép FakeProvider (không cần key). Bản đóng gói:
+            # TẮT — không key phải báo lỗi rõ, không trả văn giả thầm lặng.
+            self.allow_fake_provider = not prod
+        if not self.build_id:
+            # stamp do build_package.ps1 ghi — /health trả về để đối chiếu.
+            # Frozen (PyInstaller): file nằm cạnh .exe; dev: nằm ở repo root.
+            import sys
+            base = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                    else Path(__file__).parent.parent.parent.parent)
+            try:
+                self.build_id = (base / "build_id.txt").read_text().strip()
+            except OSError:
+                self.build_id = "dev"
         if not self.database_url:
             self.database_url = (
                 f"sqlite+aiosqlite:///{(data_dir() / 'writer.db').as_posix()}"

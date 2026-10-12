@@ -61,9 +61,18 @@ async def test_credential(cid:str,model:str|None=None,db:AsyncSession=Depends(ge
 @router.delete("/account/credentials/{cid}")
 async def disconnect_provider(cid:str,db:AsyncSession=Depends(get_db)):
     obj=await db.get(ProviderCredential,cid)
-    if not obj: raise HTTPException(404,"credential not found")
+    if not obj or obj.user_id!=DEV_USER: raise HTTPException(404,"credential not found")
     obj.status="revoked"; await db.commit()
     return {"id":obj.id,**public_credential_view(obj.provider,obj.key_hint,obj.status,obj.base_url,obj.tier)}
+
+@router.delete("/account/credentials/{cid}/permanent")
+async def delete_provider_credential(cid:str,db:AsyncSession=Depends(get_db)):
+    obj=await db.get(ProviderCredential,cid)
+    if not obj or obj.user_id!=DEV_USER:
+        raise HTTPException(404,"credential not found")
+    await db.delete(obj)
+    await db.commit()
+    return {"deleted":True,"id":cid}
 
 # ---- Model preferences ----
 @router.post("/account/model-preferences")

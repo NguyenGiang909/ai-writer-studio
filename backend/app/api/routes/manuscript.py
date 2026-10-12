@@ -121,6 +121,43 @@ async def patch_chapter(project_id: str, chapter_id: str, payload: ChapterPatch,
     for k,v in data.items(): setattr(obj,k,v)
     await db.commit(); await db.refresh(obj); return obj
 
+@router.put("/projects/{project_id}/chapters/{chapter_id}/cast")
+async def put_chapter_cast(project_id:str,chapter_id:str,payload:ChapterCastPut,
+                           db:AsyncSession=Depends(get_db)):
+    """Ghi dàn vai chương (characters/threads/abilities) sau khi validate mọi
+    id thuộc project — C15. Ghi atomic + trả cast đã lưu để UI verify đọc-
+    lại (trước PATCH cast_json trần: id rác lọt vào, compose ghim entity
+    không tồn tại, lỗi không thấy)."""
+    ch=await db.get(Chapter,chapter_id)
+    if not ch or ch.project_id!=project_id: raise HTTPException(404,"chapter not found")
+    from app.models import Character, Ability
+    from app.models.narrative import Thread
+    async def _ids(model, ids, label):
+        if not ids: return []
+        rows={r[0] for r in (await db.execute(select(model.id).where(
+            model.project_id==project_id, model.id.in_(ids)))).all()}
+        bad=[i for i in ids if i not in rows]
+        if bad:
+            raise HTTPException(422,f"{label} không thuộc project: "
+                              f"{', '.join(bad[:5])}")
+        return list(dict.fromkeys(ids))  # giữ thứ tự, bỏ trùng
+    from app.models.story import WorldEntity, Location, StyleProfile
+    from app.models.truth import StoryEvent
+    models={"characters":Character,"threads":Thread,"abilities":Ability,
+            "world":WorldEntity,"locations":Location,"timeline":StoryEvent,"styles":StyleProfile}
+    try:
+        cast=json.loads(ch.cast_json or "{}")
+        if not isinstance(cast,dict): cast={}
+    except (ValueError,TypeError): cast={}
+    for key,model in models.items():
+        if key in payload.model_fields_set:
+            cast[key]=await _ids(model,getattr(payload,key),{"characters":"nhân vật","threads":"hố/tuyến","abilities":"kĩ năng","world":"thế giới","locations":"địa điểm","timeline":"timeline","styles":"phong cách"}[key])
+        else:
+            cast.setdefault(key,[])
+    ch.cast_json=json.dumps(cast,ensure_ascii=False)
+    await db.commit(); await db.refresh(ch)
+    return {"chapter_id":ch.id,"cast":cast}
+
 @router.delete("/projects/{project_id}/chapters/{chapter_id}")
 async def delete_chapter(project_id:str,chapter_id:str,compact:bool=True,db:AsyncSession=Depends(get_db)):
     """Xoá chương: dọn facts trích của chương + scenes(+versions); compact →
@@ -267,15 +304,44 @@ async def delete_scene(project_id:str,scene_id:str,db:AsyncSession=Depends(get_d
     if not obj or obj.project_id!=project_id: raise HTTPException(404,"scene not found")
     await db.delete(obj); await db.commit(); return {"deleted":scene_id}
 
+@router.get("/projects/{project_id}/scenes/{scene_id}", response_model=SceneOut)
+async def get_scene(project_id: str, scene_id: str, db: AsyncSession=Depends(get_db)):
+    """Full cảnh (prose+skeleton) — tree chỉ trả bản mỏng; trang workspace
+    fetch riêng cảnh đang chọn."""
+    obj=await db.get(Scene,scene_id)
+    if not obj or obj.project_id!=project_id: raise HTTPException(404,"scene not found")
+    return obj
+
+
+@router.get("/projects/{project_id}/chapters/{chapter_id}/scenes",
+            response_model=list[SceneOut])
+async def chapter_scenes(project_id: str, chapter_id: str,
+                         db: AsyncSession=Depends(get_db)):
+    """Cảnh đầy đủ của 1 chương — read mode chỉ cần chương đang đọc,
+    không phải toàn bản thảo."""
+    ch=await db.get(Chapter,chapter_id)
+    if not ch or ch.project_id!=project_id: raise HTTPException(404,"chapter not found")
+    return list((await db.scalars(select(Scene).where(Scene.chapter_id==chapter_id)
+                                  .order_by(Scene.order_index))).all())
+
+
 @router.get("/projects/{project_id}/manuscript")
 async def manuscript_tree(project_id: str, db: AsyncSession=Depends(get_db)):
+    """Cây bản thảo — scene trả BẢN MỎNG (không prose/skeleton; +words).
+    Payload ~10x nhẹ hơn trên tiểu thuyết dài (69ch×7cảnh×3kB prose ≈ 2.3MB
+    → ~200KB). Trang cần văn fetch riêng: GET /scenes/{id} hoặc
+    /chapters/{id}/scenes."""
     await project_or_404(db, project_id)
     volumes=list((await db.scalars(select(Volume).where(Volume.project_id==project_id).order_by(Volume.order_index))).all())
     arcs=list((await db.scalars(select(Arc).where(Arc.project_id==project_id).order_by(Arc.order_index))).all())
     chapters=list((await db.scalars(select(Chapter).where(Chapter.project_id==project_id).order_by(Chapter.order_index))).all())
     scenes=list((await db.scalars(select(Scene).where(Scene.project_id==project_id).order_by(Scene.chapter_id,Scene.order_index))).all())
     by_ch={}
-    for s in scenes: by_ch.setdefault(s.chapter_id,[]).append(SceneOut.model_validate(s).model_dump())
+    for s in scenes:
+        d=SceneOut.model_validate(s).model_dump()
+        d.pop("prose",None); d.pop("skeleton",None)
+        d["words"]=len((s.prose or "").split())
+        by_ch.setdefault(s.chapter_id,[]).append(d)
     return {
         "project_id":project_id,
         "volumes":[VolumeOut.model_validate(v).model_dump() for v in volumes],

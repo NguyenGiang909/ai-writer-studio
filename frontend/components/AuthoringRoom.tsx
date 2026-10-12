@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { getJSON, postJSON } from "../lib/api";
+import { getJSON, patchJSON, postJSON } from "../lib/api";
 import { t, type Lang } from "../lib/i18n";
 import WriterPen, { penLabel } from "./WriterPen";
 
@@ -128,6 +128,42 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
     }
   };
 
+  // cấu hình run đang sống — PATCH không restart (C3). Local copy cập nhật
+  // theo status mỗi refresh; chỉ gửi field thật sự đổi.
+  const [cfg, setCfg] = useState<{ target?: string; words?: string;
+    call_mode?: string; goal_mode?: string } | null>(null);
+  const [cfgSaved, setCfgSaved] = useState(false);
+  useEffect(() => {
+    const r = data?.run;
+    if (!r) return;
+    setCfg((old) => old ?? {
+      target: r.target_chapters ? String(r.target_chapters) : "",
+      words: r.words_per_scene ? String(r.words_per_scene) : "",
+      call_mode: r.call_mode ?? "safe",
+      goal_mode: r.goal_mode ?? "end",
+    });
+  }, [data?.run?.id]);
+
+  const patchRun = async () => {
+    if (!run || !cfg) return;
+    const body: Record<string, unknown> = {};
+    const t_ = cfg.target?.trim() ? parseInt(cfg.target, 10) : NaN;
+    if (!isNaN(t_) && t_ !== run.target_chapters) body.target_chapters = t_;
+    const w_ = cfg.words?.trim() ? parseInt(cfg.words, 10) : NaN;
+    if (!isNaN(w_) && w_ !== run.words_per_scene) body.words_per_scene = w_;
+    if (cfg.call_mode && cfg.call_mode !== run.call_mode) body.call_mode = cfg.call_mode;
+    if (cfg.goal_mode && cfg.goal_mode !== run.goal_mode) body.goal_mode = cfg.goal_mode;
+    if (!Object.keys(body).length) return;
+    setBusy(true); setErr(""); setCfgSaved(false);
+    try {
+      await patchJSON(`/api/v1/projects/${projectId}/authoring/run`, body);
+      setCfgSaved(true);
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.message ?? "Lỗi");
+    } finally { setBusy(false); }
+  };
+
   const run = data?.run ?? null;
   const steps = data?.steps ?? [];
   // rolling: phase lưu là "build" gộp — hiển thị tách outline/writing theo display_phase
@@ -164,7 +200,7 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
               style={{ width: "100%" }}
             />
           </div>
-          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+          <div className="authoring-settings">
             <div className="field" style={{ flex: 1, margin: 0 }}>
               <label style={{ fontSize: 13, color: "var(--muted)" }}>{t(lang, "Số chương mục tiêu")}</label>
               <input
@@ -335,6 +371,49 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                 )}
               </small>
             </div>
+            {["running", "paused", "awaiting_review"].includes(run.status) && cfg && (
+              <details className="auth-cfg" style={{ marginTop: 10 }}>
+                <summary className="subtle" style={{ cursor: "pointer" }}>
+                  {t(lang, "Cấu hình run (sửa được cả khi đang chạy)")}
+                </summary>
+                <div className="authoring-settings" style={{ marginTop: 8 }}>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label style={{ fontSize: 12, color: "var(--muted)" }}>{t(lang, "Số chương mục tiêu")}</label>
+                    <input type="number" min={1} max={500} style={{ width: "100%" }}
+                      value={cfg.target ?? ""}
+                      onChange={(e) => setCfg({ ...cfg, target: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label style={{ fontSize: 12, color: "var(--muted)" }}>{t(lang, "Chữ mỗi cảnh")}</label>
+                    <input type="number" min={200} max={5000} step={100} style={{ width: "100%" }}
+                      value={cfg.words ?? ""}
+                      onChange={(e) => setCfg({ ...cfg, words: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label style={{ fontSize: 12, color: "var(--muted)" }}>{t(lang, "Gọi AI")}</label>
+                    <select style={{ width: "100%" }} value={cfg.call_mode ?? "safe"}
+                      onChange={(e) => setCfg({ ...cfg, call_mode: e.target.value })}>
+                      <option value="safe">{t(lang, "An toàn")}</option>
+                      <option value="fast">{t(lang, "Nhanh")}</option>
+                    </select>
+                  </div>
+                  <div className="field" style={{ flex: 1, margin: 0 }}>
+                    <label style={{ fontSize: 12, color: "var(--muted)" }}>{t(lang, "Kiểu mục tiêu")}</label>
+                    <select style={{ width: "100%" }} value={cfg.goal_mode ?? "end"}
+                      onChange={(e) => setCfg({ ...cfg, goal_mode: e.target.value })}>
+                      <option value="end">{t(lang, "Viết hết")}</option>
+                      <option value="waves">{t(lang, "Theo tiến độ")}</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                  <button className="btn small" disabled={busy} onClick={patchRun}>
+                    {t(lang, "Lưu cấu hình")}
+                  </button>
+                  {cfgSaved && <small className="subtle">{t(lang, "Đã lưu — ăn ngay ở bước kế")}</small>}
+                </div>
+              </details>
+            )}
             {run.phase === "build" && (data?.context?.arcs?.length ?? 0) > 0 && (
               <div className="auth-waves" style={{ marginTop: 10 }}>
                 {(data!.context!.arcs!).map((a) => (
@@ -430,14 +509,15 @@ export default function AuthoringRoom({ projectId, lang }: { projectId: string; 
                   {t(lang, "Tạm dừng")}
                 </button>
               )}
-              {run.status === "running" && run.phase === "build" && run.goal_mode !== "waves" && (
+              {["running", "awaiting_review"].includes(run.status) &&
+                run.phase === "build" && run.goal_mode !== "waves" && (
                 <button
                   className={`btn${run.pause_after_wave ? " primary" : ""}`}
                   disabled={busy}
-                  title={t(lang, "Hồi đang viết xong thì dừng lại chờ duyệt — bấm lại để huỷ")}
+                  title={t(lang, "Bật thì dừng chờ duyệt sau MỖI hồi tới — bấm lại để tắt")}
                   onClick={() => act("pause-after-wave")}
                 >
-                  {run.pause_after_wave ? t(lang, "✓ Sẽ dừng sau hồi này") : t(lang, "Dừng sau hồi này")}
+                  {run.pause_after_wave ? t(lang, "✓ Sẽ dừng sau mỗi hồi") : t(lang, "Dừng sau mỗi hồi")}
                 </button>
               )}
               {(run.status === "paused" || run.status === "failed") && (

@@ -2,13 +2,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getJSON, patchJSON } from "../lib/api";
+import { getJSON, putJSON } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useLang } from "../lib/use-lang";
 
 type Cast = { characters: string[]; threads: string[]; abilities: string[] };
 const EMPTY: Cast = { characters: [], threads: [], abilities: [] };
-type Turn = { id: string; task: string; scope_id: string; provider?: string; created_at: string };
+type Turn = { id: string; task: string; scope_id: string; provider?: string;
+              created_at: string; latency_ms?: number | null };
 
 const TASK_META: Record<string, [string, string]> = {
   writing: ["✎", "Viết cảnh"], expand: ["✎", "Mở rộng"], scene_expand: ["✎", "Mở rộng cảnh"],
@@ -31,9 +32,9 @@ export default function ChapterCastPanel({
   projectId: string;
   chapter: { id: string; order_index: number; cast_json?: string | null;
              scenes?: { id: string; title?: string | null; order_index?: number;
-                        prose?: string | null }[] } | null;
+                        words?: number }[] } | null;
   characters: { id: string; name: string; role?: string | null }[];
-  threads: { id: string; title: string; status?: string }[];
+  threads: { id: string; title: string; status?: string; must_resolve?: boolean; important?: boolean }[];
   abilities: { id: string; name: string; ability_type?: string | null }[];
   variant?: "rail" | "inline";
   sceneId?: string;
@@ -43,13 +44,17 @@ export default function ChapterCastPanel({
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [castErr, setCastErr] = useState("");
 
-  const cast: Cast = useMemo(() => {
+  const parsed: Cast = useMemo(() => {
     try {
       const c = JSON.parse(chapter?.cast_json ?? "{}");
       return { ...EMPTY, ...(typeof c === "object" && c ? c : {}) };
     } catch { return EMPTY; }
   }, [chapter?.cast_json]);
+
+  const [cast, setCast] = useState<Cast>(parsed);
+  useEffect(() => setCast(parsed), [parsed]);
 
   // nhật ký: turn của chương trước, chương rỗng/ít thì lấp bằng hoạt động project
   useEffect(() => {
@@ -90,11 +95,25 @@ export default function ChapterCastPanel({
         ? cast[kind].filter((x) => x !== id)
         : [...cast[kind], id],
     };
+    const previous = cast;
+    setCast(next);
     setBusy(true);
+    setCastErr("");
     try {
-      await patchJSON(`/api/v1/projects/${projectId}/chapters/${chapter.id}`,
-        { cast_json: JSON.stringify(next) });
+      // endpoint riêng validate id + trả cast đã lưu (C15) — trước PATCH
+      // cast_json trần, id rác lọt vào lặng lẽ không ai hay
+      const res = await putJSON(
+        `/api/v1/projects/${projectId}/chapters/${chapter.id}/cast`, { [kind]: next[kind] });
+      const saved = res?.cast ?? next;
+      // verify read-after-write: server trả gì phải khớp thứ mình gửi
+      const ok = ([kind] as (keyof Cast)[])
+        .every((k) => JSON.stringify([...saved[k]].sort())
+          === JSON.stringify([...next[k]].sort()));
+      if (!ok) setCastErr(t(lang, "Đã lưu nhưng dữ liệu đọc lại khác — tải lại trang"));
       router.refresh();
+    } catch (e) {
+      setCast(previous);
+      setCastErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   }
 
@@ -102,7 +121,7 @@ export default function ChapterCastPanel({
     const on = cast[kind].includes(id);
     return (
       <label key={id} className={"cast-row" + (on ? " on" : "")}>
-        <input type="checkbox" checked={on} disabled={busy}
+        <input type="checkbox" aria-label={label} checked={on} disabled={busy}
                onChange={() => toggle(kind, id)} />
         <span className="cast-name">{label}</span>
         {extra && <small>{extra}</small>}
@@ -120,8 +139,19 @@ export default function ChapterCastPanel({
 
   const body = (
     <>
+      <section className="console-sec priority-reminders">
+        {(["must_resolve","important"] as const).map(key=>{
+          const pending=threads.filter(th=>!["RESOLVED","ABANDONED"].includes(th.status||"")&&(key==="must_resolve"?th.must_resolve:th.important&&!th.must_resolve));
+          if(!pending.length)return null;
+          return <details className="cast-group" key={key} open><summary><span>{t(lang,key==="must_resolve"?"Hố bắt buộc lấp":"Hố quan trọng")}</span><b className="badge-sm">{pending.length}</b></summary>
+            {pending.map(th=><div className="priority-reminder" key={th.id}>{row("threads",th.id,th.title)}</div>)}
+          </details>;
+        })}
+        <Link href={`/projects/${projectId}/threads`} className="issue-link">{t(lang,"Quản lý hố ưu tiên")} →</Link>
+      </section>
       <section className="console-sec">
         <div className="console-label">{t(lang, "Dàn vai")}</div>
+        {castErr && <p className="err">{castErr}</p>}
         {picked.length > 0 && (
           <div className="cast-chips">
             {picked.map(([kind, id]) => (
@@ -156,7 +186,7 @@ export default function ChapterCastPanel({
           <div className="console-label">{t(lang, "Cảnh")}</div>
           <div className="sc-list">
             {chapter.scenes!.map((s, i) => {
-              const words = s.prose ? s.prose.trim().split(/\s+/).filter(Boolean).length : 0;
+              const words = s.words ?? 0;
               return (
                 <Link key={s.id} href={`/projects/${projectId}?scene=${s.id}`}
                       className={"sc-mini" + (s.id === sceneId ? " on" : "")}
@@ -180,6 +210,9 @@ export default function ChapterCastPanel({
               <div key={x.id} className="log-row" title={x.provider}>
                 <time>{hhmm(x.created_at)}</time>
                 <span className="log-task">{ic} {t(lang, lb)}</span>
+                {x.latency_ms != null && (
+                  <small className="subtle">{(x.latency_ms / 1000).toFixed(0)}s</small>
+                )}
               </div>
             );
           })}

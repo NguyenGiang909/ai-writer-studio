@@ -23,18 +23,24 @@ export default async function Workspace({
   const lang = await getLang();
   const { scene: sceneId } = await searchParams;
   const base = `/api/v1/projects/${projectId}`;
-  const [tree, characters, threads, abilities, locations] = await Promise.all([
+  const [tree, characters, threads, abilities, locations, world, timeline, styles] = await Promise.all([
     safe(`${base}/manuscript`, { chapters: [] }),
     safe(`${base}/characters`),
     safe(`${base}/threads`),
     safe(`${base}/abilities`),
     safe(`${base}/locations`),
+    safe(`${base}/world-entities`),
+    safe(`${base}/story-events`),
+    safe(`${base}/style-profiles`),
   ]);
 
   const scenes = tree.chapters.flatMap((c: any) => c.scenes.map((s: any) => ({ ...s, chapter: c })));
   if (!sceneId && scenes.length) redirect(`/projects/${projectId}?scene=${scenes[0].id}`);
-  const selected = scenes.find((s: any) => s.id === sceneId) ?? scenes[0] ?? null;
-  const selIdx = scenes.findIndex((s: any) => s.id === selected?.id);
+  const slim = scenes.find((s: any) => s.id === sceneId) ?? scenes[0] ?? null;
+  // tree chỉ trả scene mỏng (không prose/skeleton) — fetch full cảnh đang chọn
+  const full = slim ? await safe(`${base}/scenes/${slim.id}`, null) : null;
+  const selected = full ? { ...full, chapter: slim.chapter } : null;
+  const selIdx = scenes.findIndex((s: any) => s.id === slim?.id);
   const nav = (s: any) =>
     s && {
       href: `/projects/${projectId}?scene=${s.id}`,
@@ -58,6 +64,7 @@ export default async function Workspace({
           threads={threads}
           abilities={abilities}
           locations={locations}
+          toolData={{world,locations,timeline,styles}}
           reviewHref={`/projects/${projectId}/review`}
           memoryHref={`/projects/${projectId}/memory`}
           prevScene={prev}

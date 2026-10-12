@@ -90,3 +90,26 @@ async def test_usage_log_records_ai_calls(client, proj):
     disc = next((r for r in usage["rows"] if r["task"] == "discussion"), None)
     assert disc and disc["project_id"] == pid and disc["provider"] == "fake"
     assert usage["by_task"]["discussion"]["calls"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_permanently_delete_credentials(client):
+    from app.db.session import SessionLocal
+    from app.models.account import ProviderCredential
+    base='/api/v1/account/credentials'
+    own=(await client.post(base,json={'provider':'openai','secret':'test-dummy-delete-key'})).json()
+    keep=(await client.post(base,json={'provider':'openai','secret':'test-dummy-keep-key'})).json()
+    await client.delete(base+'/'+own['id'])
+    response=await client.delete(base+'/'+own['id']+'/permanent')
+    assert response.status_code==200 and response.json()['deleted']
+    rows=(await client.get(base)).json()
+    assert own['id'] not in [x['id'] for x in rows]
+    assert keep['id'] in [x['id'] for x in rows]
+    async with SessionLocal() as db:
+        assert await db.get(ProviderCredential,own['id']) is None
+        foreign=ProviderCredential(user_id='other-user',provider='openai',encrypted_secret='dummy',key_hint='dummy',status='connected')
+        db.add(foreign);await db.commit();foreign_id=foreign.id
+    assert (await client.delete(base+'/'+foreign_id+'/permanent')).status_code==404
+    assert (await client.delete(base+'/'+foreign_id)).status_code==404
+    assert (await client.delete(base+'/'+own['id']+'/permanent')).status_code==404
+    assert (await client.delete(base+'/'+keep['id']+'/permanent')).status_code==200

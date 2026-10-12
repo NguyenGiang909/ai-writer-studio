@@ -48,9 +48,9 @@ export default async function ProjectLayout({
   return (
     <div className="app">
       <header className="top">
-        <button className="icon-btn menu-toggle" aria-label={t(lang, "Mở điều hướng")}>☰</button>
-        <Link href="/" className="brand" style={{ textDecoration: "none" }}>
-          <span className="mark">A</span> AI Writer Studio
+        <button type="button" className="icon-btn menu-toggle" aria-controls="project-navigation" aria-label={t(lang, "Mở điều hướng")} title={t(lang, "Mở điều hướng")}>☰</button>
+        <Link href="/" className="brand" aria-label="AI Writer Studio" style={{ textDecoration: "none" }}>
+          <span className="mark">A</span><span className="brand-name">AI Writer Studio</span>
         </Link>
         <ProjectModal currentId={projectId} currentName={project?.name} />
         <Suspense fallback={<div className="top-search" />}>

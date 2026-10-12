@@ -19,4 +19,5 @@ class AiTurn(Base):
     scope_id:Mapped[str]=mapped_column(String(36),index=True)
     task:Mapped[str]=mapped_column(String(32),index=True); prompt_excerpt:Mapped[str]=mapped_column(Text,default=""); reply_text:Mapped[str]=mapped_column(Text,default="")
     provider:Mapped[str]=mapped_column(String(32),default=""); model:Mapped[str]=mapped_column(String(120),default="")
+    latency_ms:Mapped[int|None]=mapped_column(Integer)
     created_at:Mapped[str]=mapped_column(String(32),default=lambda:__import__("datetime").datetime.utcnow().isoformat(),index=True)

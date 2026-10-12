@@ -15,7 +15,16 @@ const TASKS = [
   ["discussion", "Thảo luận"], ["writing", "Viết / mở rộng"], ["extraction", "Trích xuất"],
   ["summarization", "Tóm tắt"], ["review", "Kiểm tra"],
 ].map(([value, label]) => ({ value, label }));
-const taskLabel = (t: string) => TASKS.find((x) => x.value === t)?.label ?? t;
+const TASK_LABELS: Record<string, string> = {
+  arc_chapters: "Dàn chương trong hồi", revision: "Sửa đoạn", skeleton: "Dàn cảnh", expand: "Mở rộng",
+  scene_expand: "Mở rộng cảnh", chapter_outline: "Dàn ý chương",
+  character_profile: "Hồ sơ nhân vật", premise: "Ý tưởng truyện",
+  cast_gen: "Dựng dàn nhân vật", world_gen: "Dựng thế giới",
+  book_outline: "Dàn ý toàn truyện", chapter_facts: "Trích dữ kiện chương",
+  chapter_write: "Viết chương", scene_write: "Viết cảnh", ai_fix: "AI sửa cảnh",
+  deep_check: "Soi chương", deep_check_range: "Soi khoảng",
+};
+const taskLabel = (task: string) => TASKS.find((x) => x.value === task)?.label ?? TASK_LABELS[task] ?? task;
 
 export default async function Settings() {
   const lang = await getLang();
@@ -29,9 +38,9 @@ export default async function Settings() {
   const byTask = usage?.by_task ?? {};
   return (
     <div className="app">
-    <header className="top">
-      <Link href="/" className="brand" style={{ textDecoration: "none" }}>
-        <span className="mark">A</span> AI Writer Studio
+    <header className="top settings-top">
+      <Link href="/" className="brand" aria-label="AI Writer Studio" style={{ textDecoration: "none" }}>
+        <span className="mark">A</span><span className="brand-name">AI Writer Studio</span>
       </Link>
       <span className="crumb">{t(lang, "Kết nối API")}</span>
       <Link href="/account" className="account-shortcut" style={{ textDecoration: "none", marginLeft: "auto" }}>
@@ -53,21 +62,24 @@ export default async function Settings() {
           {t(lang, "Năng lực API (Yếu/Thường/Mạnh) quyết định app có chia nhỏ request không — gateway yếu sẽ được gửi prompt ngắn; không liên quan chất lượng văn.")}
         </p>
         {credentials.map((c: any) => (
-          <div key={c.id} className="list-row">
-            <b>{c.provider}</b> <code style={{ fontSize: 12 }}>{c.key_hint}</code>{" "}
-            {c.base_url && <code style={{ fontSize: 11, color: "var(--muted)" }}>{c.base_url}</code>}{" "}
-            <small style={{ color: c.status === "connected" ? "#559d78" : "var(--red)" }}>
-              {c.status === "connected" ? t(lang, "Đã kết nối") : c.status === "error" ? t(lang, "Lỗi") : c.status}
-            </small>
-            <TierSelect id={c.id} tier={c.tier ?? "standard"} override={c.tier_override ?? null} />
-            <span style={{ marginLeft: 8 }}>
-              <ActionButton endpoint={`/api/v1/account/credentials/${c.id}/test`} label={t(lang, "Kiểm tra")} />
-            </span>
-            {c.status === "connected" && (
-              <span style={{ marginLeft: 8 }}>
-                <ActionButton endpoint={`/api/v1/account/credentials/${c.id}`} method="delete" label={t(lang, "Ngắt kết nối")} />
+          <div key={c.id} className="credential-row">
+            <div className="credential-heading">
+              <b>{c.provider}</b><code>{c.key_hint}</code>
+              <span className={`connection-status ${c.status}`}>
+                {t(lang, c.status === "connected" ? "Đã kết nối" : c.status === "error" ? "Lỗi" : c.status === "revoked" ? "Đã thu hồi" : c.status)}
               </span>
-            )}
+            </div>
+            {c.base_url && <code className="credential-url">{c.base_url}</code>}
+            <div className="credential-actions">
+              <TierSelect id={c.id} tier={c.tier ?? "standard"} override={c.tier_override ?? null} />
+              <ActionButton endpoint={`/api/v1/account/credentials/${c.id}/test`} label={t(lang, "Kiểm tra")} />
+              {c.status === "connected" && (
+                <ActionButton endpoint={`/api/v1/account/credentials/${c.id}`} method="delete" label={t(lang, "Ngắt kết nối")} />
+              )}
+              <ActionButton endpoint={`/api/v1/account/credentials/${c.id}/permanent`} method="delete"
+                label={t(lang,"Xoá API")}
+                confirm={t(lang,"Xoá API {provider} ({hint}) khỏi ứng dụng? Muốn dùng lại bạn cần nhập lại khoá.",{provider:c.provider,hint:c.key_hint})} />
+            </div>
           </div>
         ))}
         {!credentials.length && <p className="subtle">{t(lang, "Chưa kết nối nhà cung cấp nào.")}</p>}
@@ -88,9 +100,10 @@ export default async function Settings() {
         <h3>{t(lang, "Định tuyến model")}</h3>
         <p className="subtle">{t(lang, "Ưu tiên: tác vụ → dự án → tài khoản → mặc định hệ thống.")}</p>
         {prefs.map((p: any) => (
-          <div key={p.id} className="list-row">
-            <b>{t(lang, taskLabel(p.task))}</b> → {p.provider} / <code style={{ fontSize: 12 }}>{p.model}</code>
-            {p.project_id && <small style={{ color: "var(--muted)" }}>{t(lang, " · dự án {id}", { id: p.project_id.slice(0, 8) })}</small>}
+          <div key={p.id} className="routing-row">
+            <b>{t(lang, taskLabel(p.task))}</b>
+            <span className="routing-model"><span>{p.provider}</span><code>{p.model}</code></span>
+            {p.project_id && <small className="routing-scope">{t(lang, " · dự án {id}", { id: p.project_id.slice(0, 8) })}</small>}
           </div>
         ))}
         <PostForm endpoint="/api/v1/account/model-preferences" submitLabel={t(lang, "Quy tắc")} fields={[
@@ -117,7 +130,7 @@ export default async function Settings() {
           </div>
         )}
         {usageRows.slice(0, 20).map((r: any) => (
-          <div key={r.id} className="list-row">
+          <div key={r.id} className="list-row usage-row">
             <small style={{ color: "var(--muted)" }}>{(r.created_at || "").slice(0, 16).replace("T", " ")}</small>
             <b>{t(lang, taskLabel(r.task))}</b>
             <span>{r.provider}/{r.model}</span>

@@ -23,9 +23,10 @@ const TYPE_LABEL: Record<string, string> = {
   ability: "Năng lực", thread: "Hố", lore: "Tri thức",
 };
 
-export default async function TimelinePage({ params }: { params: Promise<{ projectId: string }> }) {
+export default async function TimelinePage({ params, searchParams }: { params: Promise<{ projectId: string }>; searchParams: Promise<{page?:string}> }) {
   const { projectId } = await params;
   const lang = await getLang();
+  const query = await searchParams;
   const base = `/api/v1/projects/${projectId}`;
   const [events, states, tree, chars, items, locs, factions, abils, threads] = await Promise.all([
     safe(`${base}/story-events`), safe(`${base}/story-states`), safe(`${base}/manuscript`),
@@ -54,6 +55,9 @@ export default async function TimelinePage({ params }: { params: Promise<{ proje
   const byStoryTime = [...events].sort((a: any, b: any) => (a.story_time ?? 1e9) - (b.story_time ?? 1e9));
   const byNarrative = [...events].sort((a: any, b: any) => (a.narrative_order ?? 1e9) - (b.narrative_order ?? 1e9));
 
+  const pages = Math.max(1, Math.ceil(events.length / 20));
+  const page = Math.min(pages, Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1));
+  const start = (page - 1) * 20;
   const eventFields = (e: any) => [
     { name: "event_type", label: t(lang, "Loại"), required: true, defaultValue: e.event_type ?? "", placeholder: "arrival/reveal/move/…" },
     { name: "summary", label: t(lang, "Tóm tắt"), type: "textarea" as const, required: true, defaultValue: e.summary ?? "" },
@@ -81,7 +85,7 @@ export default async function TimelinePage({ params }: { params: Promise<{ proje
   );
 
   return (
-    <main className="main"><div className="dashboard">
+    <main className="main"><div className="dashboard timeline-page">
       <div className="dash-head">
         <div>
           <div className="eyebrow">{t(lang, "Hai lớp thời gian")}</div>
@@ -92,28 +96,33 @@ export default async function TimelinePage({ params }: { params: Promise<{ proje
       <p className="subtle">
         {t(lang, "Thời gian trong truyện và thứ tự độc giả đọc là hai trục độc lập — flashback không được lộ kiến thức tương lai.")}
       </p>
+      {events.length > 20 && <nav className="timeline-pagination" aria-label={t(lang,"Phân trang sự kiện")}>
+        <span>{t(lang,"Sự kiện")} {start + 1}–{Math.min(start + 20, events.length)} / {events.length} · {t(lang,"Trang")} {page}/{pages}</span>
+        {page > 1 && <Link className="btn" href={`?page=${page-1}`}>{t(lang,"Trang trước")}</Link>}
+        {page < pages && <Link className="btn" href={`?page=${page+1}`}>{t(lang,"Trang sau")}</Link>}
+      </nav>}
       {events.length ? (
         <TimelineView
           dual={
             <div className="grid">
               <div className="card">
                 <h3>{t(lang, "Thời gian trong truyện")}</h3>
-                {byStoryTime.map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
+                {byStoryTime.slice(start, start + 20).map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
               </div>
               <div className="card">
                 <h3>{t(lang, "Thứ tự kể")}</h3>
-                {byNarrative.map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
+                {byNarrative.slice(start, start + 20).map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
               </div>
             </div>
           }
           chrono={
             <div className="card">
-              {byStoryTime.map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
+              {byStoryTime.slice(start, start + 20).map((e: any) => eventRow(e, <b>t={e.story_time ?? "?"}</b>))}
             </div>
           }
           narrative={
             <div className="card">
-              {byNarrative.map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
+              {byNarrative.slice(start, start + 20).map((e: any) => eventRow(e, <b>#{e.narrative_order ?? "?"}</b>))}
             </div>
           }
         />

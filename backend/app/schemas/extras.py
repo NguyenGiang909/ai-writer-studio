@@ -35,7 +35,9 @@ class SecretCreate(BaseModel):
 class ThreadCreate(BaseModel):
     title:str=Field(min_length=1,max_length=240); thread_type:str="mystery"
     status:str="OPEN"; description:str|None=None; planned_payoff_order:int|None=None
+    must_resolve:bool=False; important:bool=False
 class ThreadPatch(BaseModel):
+    must_resolve:bool=False; important:bool=False
     title:str|None=None; status:str|None=None
     description:str|None=None; planned_payoff_order:int|None=None
 class ThreadBeatCreate(BaseModel):
@@ -124,3 +126,12 @@ class AuthoringRegenerateRequest(BaseModel):
 class AuthoringApproveRequest(BaseModel):
     # định hướng cho HỒI SAU (rolling + goal_mode=waves) — "tạo goal dần"
     hint:str|None=Field(default=None,max_length=2000)
+class AuthoringRunPatchRequest(BaseModel):
+    # sửa cấu hình run ĐANG chạy mà không phải restart (C3/C4): field nào
+    # None là giữ nguyên. pause_after_wave là cờ BỀN (bật → dừng sau mỗi
+    # ranh giới sóng tới khi tắt) — đặt được cả khi đang awaiting_review.
+    target_chapters:int|None=Field(default=None,ge=1,le=500)
+    words_per_scene:int|None=Field(default=None,ge=200,le=5000)
+    call_mode:str|None=Field(default=None,pattern="^(safe|fast)$")
+    goal_mode:str|None=Field(default=None,pattern="^(end|waves)$")
+    pause_after_wave:bool|None=None

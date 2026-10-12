@@ -122,6 +122,18 @@ async def test_check_no_conflict_when_consistent(client):
     assert "CANON_CONFLICT" not in codes  # near-dup → không phải conflict
 
 
+async def _job_done(client, pid: str, jid: str, tries: int = 200) -> dict:
+    """Poll job nền tới khi done/failed (job spawn bằng create_task trên
+    cùng event loop — mỗi await client.get nhường lượt cho nó chạy)."""
+    import asyncio
+    for _ in range(tries):
+        r = (await client.get(f"/api/v1/projects/{pid}/audit/jobs/{jid}")).json()
+        if r["status"] != "running":
+            return r
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"job {jid} không xong sau {tries} lần poll")
+
+
 @pytest.mark.asyncio
 async def test_deep_check_persists_findings(client):
     pid = (await client.post("/api/v1/projects", json={"name": "Deep"})).json()["id"]
@@ -135,7 +147,10 @@ async def test_deep_check_persists_findings(client):
         await db.commit()
     r = await client.post(f"/api/v1/projects/{pid}/chapters/{chid}/deep-check")
     assert r.status_code == 200
-    fid = r.json()["finding_id"]
+    jid = r.json()["job_id"]
+    job = await _job_done(client, pid, jid)
+    assert job["status"] == "done", job.get("error")
+    fid = job["result"]["finding_id"]
     async with SessionLocal() as db:
         f = await db.get(AuditFinding, fid)
         assert f and f.scope_id == chid and json.loads(f.issues_json) is not None
@@ -169,7 +184,9 @@ async def test_range_deep_check(client):
     r = await client.post(f"/api/v1/projects/{pid}/deep-check",
                           json={"from_order": 1, "to_order": 2})
     assert r.status_code == 200
-    d = r.json()
+    job = await _job_done(client, pid, r.json()["job_id"])
+    assert job["status"] == "done", job.get("error")
+    d = job["result"]
     assert d["mode"] == "prose" and d["from_order"] == 1 and d["to_order"] == 2
     assert any("thiếu tóm tắt" in w for w in d["warnings"])
     fid = d["finding_id"]
@@ -192,7 +209,9 @@ async def test_range_deep_check(client):
                      order_index=1, skeleton="Minh mở rương cũ"))
         await db.commit()
     r = await client.post(f"/api/v1/projects/{pid2}/deep-check", json={})
-    assert r.status_code == 200 and r.json()["mode"] == "outline"
+    assert r.status_code == 200
+    job = await _job_done(client, pid2, r.json()["job_id"])
+    assert job["status"] == "done" and job["result"]["mode"] == "outline"
 
 
 @pytest.mark.asyncio
@@ -211,3 +230,59 @@ async def test_style_fatigue_flagged(client):
     assert "STYLE_FATIGUE" in codes
     fat = [i for i in r.json()["issues"] if i["code"] == "STYLE_FATIGUE"]
     assert fat[0]["evidence"]["count"] >= 8
+
+
+@pytest.mark.asyncio
+async def test_dismiss_reopen_finding_and_filter(client):
+    """Dismiss 'không phải lỗi': finding giữ lại (không xoá) + dismiss_key;
+    reopen đưa về open. Deep-check sau lọc issue trùng motif đã dismiss."""
+    pid = (await client.post("/api/v1/projects", json={"name": "Dis"})).json()["id"]
+    async with SessionLocal() as db:
+        f = AuditFinding(project_id=pid, scope_type="chapter", scope_id="c1",
+                         issues_json=json.dumps([{"code": "X", "severity": "warning",
+                                                  "message": "Ghế thứ năm trống có chủ đích"}]))
+        db.add(f); await db.commit(); fid = f.id
+
+    r = await client.post(f"/api/v1/projects/{pid}/audit/findings/{fid}/dismiss")
+    assert r.status_code == 200 and r.json()["status"] == "dismissed"
+    async with SessionLocal() as db:
+        f = await db.get(AuditFinding, fid)
+        assert f.status == "dismissed" and f.dismiss_key  # key motif đã ghi
+    # deep-check sau đọc dismissed keys để lọc — key phải derive được
+    async with SessionLocal() as db:
+        keys = await __import__("app.api.routes.ai", fromlist=["_dismissed_issue_keys"])._dismissed_issue_keys(db, pid)
+        assert any("ghế thứ năm" in k for k in keys)
+
+    r = await client.post(f"/api/v1/projects/{pid}/audit/findings/{fid}/reopen")
+    assert r.status_code == 200 and r.json()["status"] == "open"
+    async with SessionLocal() as db:
+        f = await db.get(AuditFinding, fid)
+        assert f.status == "open" and f.dismiss_key is None
+
+
+@pytest.mark.asyncio
+async def test_stale_job_reaped_and_new_spawned(client):
+    """Job 'running' mồ côi (process chết giữa chừng, created_at cũ) → POST
+    lại đánh nó failed + tạo job mới thay vì dedupe kẹt vĩnh viễn."""
+    from datetime import datetime, timedelta
+    from app.models.review import AuditJob
+    pid = (await client.post("/api/v1/projects", json={"name": "Stale"})).json()["id"]
+    async with SessionLocal() as db:
+        ch = Chapter(project_id=pid, title="C1", order_index=1)
+        db.add(ch); await db.flush()
+        db.add(Scene(project_id=pid, chapter_id=ch.id, title="S",
+                     order_index=1, narrative_order=1, prose="văn " * 60))
+        orphan = AuditJob(project_id=pid, scope_type="chapter", scope_id=ch.id,
+                          created_at=(datetime.utcnow() - timedelta(minutes=30)).isoformat())
+        db.add(orphan); await db.commit()
+        chid, old_id = ch.id, orphan.id
+
+    r = await client.post(f"/api/v1/projects/{pid}/chapters/{chid}/deep-check")
+    assert r.status_code == 200
+    jid = r.json()["job_id"]
+    assert jid != old_id               # job mới, không dedupe vào mồ côi
+    async with SessionLocal() as db:
+        old = await db.get(AuditJob, old_id)
+        assert old.status == "failed"  # mồ côi bị đánh failed
+    job = await _job_done(client, pid, jid)
+    assert job["status"] == "done", job.get("error")

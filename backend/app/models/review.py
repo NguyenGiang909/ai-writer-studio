@@ -18,4 +18,22 @@ class AuditFinding(Base):
     scope_type:Mapped[str]=mapped_column(String(32),default="chapter")   # chapter
     scope_id:Mapped[str]=mapped_column(String(36),index=True)
     issues_json:Mapped[str]=mapped_column(Text)  # [{code,severity,message,suggestion,scene_id?}]
+    # open | dismissed — tác giả đánh "không phải lỗi"; dismiss_key (code+message
+    # chuẩn hoá) để deep-check sau skip finding trùng motif chủ đích (mục tiêu #10)
+    status:Mapped[str]=mapped_column(String(16),default="open")
+    dismiss_key:Mapped[str|None]=mapped_column(String(120),index=True)
     created_at:Mapped[str]=mapped_column(String(40),default=lambda:__import__("datetime").datetime.utcnow().isoformat())
+
+class AuditJob(Base):
+    """Job nền cho deep-check — endpoint POST trả job_id ngay, client poll status.
+    Trước đây deep-check chạy đồng bộ >4ph → vượt client-timeout, không ghi gì (C10)."""
+    __tablename__="audit_jobs"
+    id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+    project_id:Mapped[str]=mapped_column(ForeignKey("projects.id",ondelete="CASCADE"),index=True)
+    scope_type:Mapped[str]=mapped_column(String(32),default="chapter")   # chapter | range
+    scope_id:Mapped[str]=mapped_column(String(36))
+    status:Mapped[str]=mapped_column(String(16),default="running")      # running|done|failed
+    result_json:Mapped[str|None]=mapped_column(Text)
+    error:Mapped[str|None]=mapped_column(String(1000))
+    created_at:Mapped[str]=mapped_column(String(40),default=lambda:__import__("datetime").datetime.utcnow().isoformat())
+    finished_at:Mapped[str|None]=mapped_column(String(40))

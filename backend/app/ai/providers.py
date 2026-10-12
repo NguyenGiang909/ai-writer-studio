@@ -7,6 +7,8 @@ Interface: complete(ModelRequest) -> CompletionResult.
 """
 
 import asyncio
+import json
+import random
 import re
 from dataclasses import dataclass, field
 
@@ -164,6 +166,9 @@ class OpenAICompatibleProvider(BaseProvider):
             # trong khi gateway cắt request >60s → 504. reasoning_effort=low ép
             # thinking ngắn lại, call qua được ngưỡng gateway.
             payload["reasoning_effort"] = "low"
+            # non-stream bị gateway cắt cứng ~60s → 504 với mọi call sinh văn dài;
+            # SSE stream sống qua ngưỡng vì bytes chảy liên tục. Đường riêng cho kiraai.
+            return await self._complete_streaming(payload, model)
         last_exc: httpx.HTTPError | None = None
         for attempt in range(3):
             try:
@@ -184,7 +189,8 @@ class OpenAICompatibleProvider(BaseProvider):
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 last_exc = e
             if attempt < 2:
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s
+                # jitter tránh retry đồng bộ khi nhiều caller cùng bị 5xx
+                await asyncio.sleep(2 ** attempt + random.uniform(0, 1.2))
         else:
             raise last_exc  # type: ignore[misc]
         data = r.json()
@@ -202,6 +208,70 @@ class OpenAICompatibleProvider(BaseProvider):
             text=text,
             provider=self.name, model=model,
             usage=data.get("usage", {}),
+        )
+
+    async def _complete_streaming(self, payload: dict, model: str) -> CompletionResult:
+        """SSE stream cho gateway cắt non-stream sớm (kiraai ~60s).
+
+        Gộp delta.content của mọi chunk thành text đầy đủ. Semantics retry
+        giống non-stream: 4xx/504/413/408 fail fast, 5xx/transport retry.
+        """
+        stream_payload = {**payload, "stream": True}
+        last_exc: httpx.HTTPError | None = None
+        parts: list[str] = []
+        usage: dict = {}
+        for attempt in range(3):
+            parts, usage = [], {}
+            try:
+                async with httpx.AsyncClient(
+                    # read=120s/byte-gap: stream câm giữa chừng (gateway rớt
+                    # connection âm thầm) phải chết sớm để còn retry — bản
+                    # read=600s để job treo ~10 phút mới phát hiện.
+                    timeout=httpx.Timeout(600.0, connect=30.0, read=120.0)
+                ) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        json=stream_payload,
+                    ) as r:
+                        r.raise_for_status()
+                        async for line in r.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            raw = line[5:].strip()
+                            if raw == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(raw)
+                            except ValueError:
+                                continue
+                            if chunk.get("usage"):
+                                usage = chunk["usage"]
+                            for choice in chunk.get("choices") or []:
+                                delta = choice.get("delta") or {}
+                                content = delta.get("content")
+                                if isinstance(content, str):
+                                    parts.append(content)
+                break
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500 or e.response.status_code in (504, 413, 408):
+                    raise
+                last_exc = e
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                last_exc = e
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt + random.uniform(0, 1.2))
+        else:
+            raise last_exc  # type: ignore[misc]
+        text = "".join(parts)
+        if not text.strip():
+            raise RuntimeError(
+                "Model returned empty content — output truncated at reasoning stage")
+        return CompletionResult(
+            text=text,
+            provider=self.name, model=model,
+            usage=usage,
         )
 
 
@@ -244,7 +314,7 @@ class AnthropicProvider(BaseProvider):
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 last_exc = e
             if attempt < 2:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt + random.uniform(0, 1.2))
         else:
             raise last_exc  # type: ignore[misc]
         data = r.json()

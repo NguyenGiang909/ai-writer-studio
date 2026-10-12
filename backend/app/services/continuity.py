@@ -219,3 +219,25 @@ def style_fatigue(phrase:str,count:int,chapter_id:str,chapter_order:int|None):
         f"nghi văn mẫu lặp, cân nhắc biến hoá câu.",
         {"chapter_id":chapter_id,"narrative_order":chapter_order,
          "phrase":phrase,"count":count})
+
+# ---- drift: tên trôi khỏi nội dung + chi tiết lặp thay đổi giữa các chương ----
+
+def title_content_drift(term:str,scene_id:str,scene_title:str,chapter_order:int|None):
+    """Tên cảnh/chương nhắc một địa danh/thực thể đã biết nhưng văn không hề
+    đề cập — C13: 'Đêm Lakeview' treo trên cảnh thực tế ở căn hộ Hạnh."""
+    return Issue("TITLE_CONTENT_DRIFT","consistency","warning",
+        f"Tên cảnh '{scene_title}' nhắc '{term}' nhưng văn không hề đề cập — "
+        f"tên có thể trôi khỏi nội dung (hoặc văn lệch địa điểm đã dàn).",
+        {"scene_id":scene_id,"narrative_order":chapter_order,"term":term})
+
+# nhãn lặp kiểu "Mục 011", "Hồ sơ 001" đi kèm ngày — giữa các chương đổi ngày
+# mà không dữ kiện nào giải thích (C14: 'Mục 011 — 24/5' vs '15/5')
+_FACT_LABEL_RX=re.compile(
+    r"([A-ZÀ-Ỹa-zà-ỹ]+\s+\d{1,4})\s*[—–:\-]\s*(?:ngày\s+)?(\d{1,2}/\d{1,2}(?:/\d{2,4})?)")
+
+def fact_drift(label:str,dates:list[str],orders:list[int]):
+    return Issue("FACT_DRIFT","consistency","warning",
+        f"'{label}' xuất hiện với {len(dates)} ngày khác nhau "
+        f"({' · '.join(dates[:4])}) ở các chương {', '.join(map(str,sorted(set(orders))))} — "
+        f"chi tiết lặp đổi giữa chương, kiểm tra trích/sửa tay có nhất quán.",
+        {"label":label,"dates":sorted(set(dates)),"chapters":sorted(set(orders))})

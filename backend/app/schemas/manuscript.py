@@ -33,6 +33,16 @@ class ChapterInsert(BaseModel):
     """Chèn chương vào trước order_index — backend dời trục narrative đồng bộ."""
     title: str; order_index: int
     volume_id: str | None = None; arc_id: str | None = None
+class ChapterCastPut(BaseModel):
+    """Dàn vai chương qua endpoint riêng — validate id thay vì tin cast_json
+    trần (C15: PATCH generic nuốt id rác sai project → compose ghim bóng ma)."""
+    characters: list[str] = Field(default_factory=list, max_length=60)
+    threads: list[str] = Field(default_factory=list, max_length=60)
+    abilities: list[str] = Field(default_factory=list, max_length=60)
+    world: list[str] = Field(default_factory=list, max_length=60)
+    locations: list[str] = Field(default_factory=list, max_length=60)
+    timeline: list[str] = Field(default_factory=list, max_length=60)
+    styles: list[str] = Field(default_factory=list, max_length=60)
 class ChapterOut(ORMModel):
     id: str; project_id: str; title: str; order_index: int; status: str
     volume_id: str | None = None; arc_id: str | None = None

@@ -35,11 +35,13 @@ async def shift_narrative(db: AsyncSession, pid: str, at_order: int, delta: int)
     """Dời mọi vị trí narrative >= at_order thêm delta (+1 chèn, -1 khép lỗ).
 
     chapters.order_index có unique (project_id, order_index) → update từng row
-    theo thứ tự desc để không đụng constraint giữa chừng."""
+    theo hướng delta: +1 (chèn) dời desc để slot cao trống trước, -1 (khép lỗ)
+    dời asc để slot thấp trống trước — ngược hướng sẽ đụng unique giữa chừng."""
     moved = 0
+    order = Chapter.order_index.desc() if delta > 0 else Chapter.order_index.asc()
     chs = list((await db.scalars(select(Chapter).where(
         Chapter.project_id == pid, Chapter.order_index >= at_order)
-        .order_by(Chapter.order_index.desc()))).all())
+        .order_by(order))).all())
     for c in chs:
         c.order_index += delta
         moved += 1

@@ -11,6 +11,8 @@ Trong phase chạy hết (auto-run); pause = dừng giữa các step.
 import asyncio
 import json
 import re
+import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -223,22 +225,41 @@ def next_step(run: AuthoringRun, f: Facts) -> Step | None:
         # hồi sau được dàn SAU KHI hồi trước viết xong → prompt thấy facts thật
         if not f.chapters and not f.arcs and "outline.skeleton" not in f.done:
             return Step("outline.skeleton", "book_outline", "Sinh khung Quyển/Hồi")
+        # hard-stop: đủ target_chapters → không DÀN chương mới nữa (target là
+        # điều kiện dừng, không chỉ gợi ý trong prompt — trước đây engine cứ
+        # outline hồi kế và viết quá target: C22). Chương đã dàn vẫn viết nốt.
+        at_target = bool(run.target_chapters) and \
+            len(f.chapters) >= (run.target_chapters or 0)
         ctx = _premise_ctx(run)
         cur = ctx.get("wave_arc")
-        target = next((a for a in f.arcs if _arc_step(run, f, a) is not None), None)
+        target = None
+        for a in f.arcs:
+            s = _arc_step(run, f, a)
+            if s is None:
+                continue
+            if at_target and s.key.startswith("outline.chapters."):
+                continue  # hồi này chỉ còn việc dàn chương mới — bỏ khi đã đủ
+            target = a
+            break
         if target is None:
             # hết hồi → chương mồ côi (tác giả tự thêm ngoài hồi) vẫn được build
             och = next((c for c in f.chapters
                         if not c.arc_id and _ch_step(run, f, c) is not None), None)
-            return _ch_step(run, f, och) if och else None
+            if och:
+                return _ch_step(run, f, och)
+            # đủ target và không còn việc gì → complete thay vì checkpoint rỗng
+            # (checkpoint rỗng → approve → lại checkpoint — loop vô nghĩa)
+            if at_target:
+                return Step("__target_done__", "noop", "Đạt số chương mục tiêu")
+            return None
         if cur != target.id:
             want_pause = run.pause_after_wave \
                 or getattr(run, "goal_mode", "end") == "waves"
             if want_pause and cur and ctx.get("wave_paused_for") != target.id:
                 # sentinel — tick đổi thành checkpoint + ghi wave_paused_for để
                 # không bắn lại đúng ranh giới này sau approve. pause_after_wave
-                # là cờ 1-lần; goal_mode=waves là mode bền → dừng sau MỖI hồi
-                # ("viết theo tiến độ" — tác giả duyệt/đặt hướng hồi sau)
+                # là cờ BỀN (bật → dừng mọi sóng tới khi tắt); goal_mode=waves
+                # cũng bền → dừng sau MỖI hồi ("viết theo tiến độ")
                 return Step("__wave_pause__", "noop",
                             "Dừng ở ranh giới sóng theo yêu cầu", target.id)
             ctx["wave_arc"] = target.id
@@ -282,12 +303,14 @@ async def ai_call(db, run, task: str, prompt: str, system=None, scene_id=None,
                                                  scene_id=scene_id, chapter_id=chapter_id)
     if task != "premise" and (run.prompt or "").strip():
         body = f"=== ĐỊNH HƯỚNG CỦA TÁC GIẢ ===\n{run.prompt.strip()}\n\n{body}"
+    t0 = time.monotonic()
     result = await ModelRouter(db).complete(ModelRequest(
         task=task, prompt=body, project_id=run.project_id,
         system=system or sys_prompt))
     db.add(AiTurn(project_id=run.project_id, scope_id=run.id, task=task,
-                  prompt_excerpt=body[:4000], reply_text=(result.text or "")[:4000],
-                  provider=result.provider or "", model=result.model or ""))
+                  prompt_excerpt=body[:4000], reply_text=(result.text or "")[:20000],
+                  provider=result.provider or "", model=result.model or "",
+                  latency_ms=int((time.monotonic() - t0) * 1000)))
     return result.text or "", result.provider or ""
 
 
@@ -618,17 +641,24 @@ async def h_outline_all(db, run, step):
     ctx = _premise_ctx(run)
     beats = ctx.get("beats") or {}
     n_ch = 0
+    n_arcs = 0
     for vi, v in enumerate(vols[:10], start=1):
+        if n_arcs >= 12:
+            break  # cap tổng hồi — skeleton phình thì cắt (#9)
         vol = Volume(project_id=run.project_id, title=_clip(v.get("title"), 240) or f"Quyển {vi}",
                      order_index=vol_order + vi)
         db.add(vol); await db.flush(); provenance(db, run, "volume", vol.id)
-        for a in (v.get("arcs") or [])[:10]:
+        for a in (v.get("arcs") or [])[:max(0, 12 - n_arcs)]:
             arc_order += 1
+            n_arcs += 1
             arc = Arc(project_id=run.project_id, volume_id=vol.id,
                       title=_clip(a.get("title"), 240) or f"Hồi {arc_order}",
                       order_index=arc_order)
             db.add(arc); await db.flush(); provenance(db, run, "arc", arc.id)
-            for c in (a.get("chapters") or [])[:40]:
+            # clamp theo target — fast mode cũng không vượt mục tiêu (C22/#9)
+            ch_budget = (max(0, run.target_chapters - n_ch)
+                         if run.target_chapters else 40)
+            for c in (a.get("chapters") or [])[:min(40, ch_budget)]:
                 ch_order += 1
                 ch = Chapter(project_id=run.project_id, volume_id=vol.id, arc_id=arc.id,
                              title=_clip(c.get("title"), 240) or f"Chương {ch_order}",
@@ -667,6 +697,8 @@ async def h_outline_skeleton(db, run, step):
         Arc.project_id == run.project_id))).all()), default=0)
     n_arcs = 0
     for vi, v in enumerate(vols[:10], start=1):
+        if n_arcs >= 12:
+            break  # cap tổng hồi — model trả skeleton phình thì cắt (#9)
         vol = Volume(project_id=run.project_id, title=_clip(v.get("title"), 240) or f"Quyển {vi}",
                      order_index=vol_order + vi)
         db.add(vol); await db.flush(); provenance(db, run, "volume", vol.id)
@@ -712,6 +744,20 @@ async def _written_ctx(db, run) -> str:
         Thread.project_id == run.project_id, Thread.status == "OPEN"))).all()[:12])
     if ths:
         lines.append("THREAD ĐANG MỞ: " + ", ".join(t.title for t in ths))
+    # resolution sweep: gần target → liệt kê NỢ HỐ quá hạn để mọi call cuối
+    # thấy (trước chỉ annotate lẻ tẻ, không bước thu hồi tập trung — C12)
+    if run.target_chapters:
+        n_ch = (await db.scalar(select(func.count(Chapter.id)).where(
+            Chapter.project_id == run.project_id))) or 0
+        if n_ch >= run.target_chapters * 0.8:
+            overdue = list((await db.scalars(select(Thread).where(
+                Thread.project_id == run.project_id, Thread.status == "OPEN",
+                Thread.planned_payoff_order <= run.target_chapters))).all())
+            if overdue:
+                lines.append(
+                    "NỢ HỐ PHẢI TRẢ TRƯỚC KHI KẾT (trả hoặc để-ngỏ có chủ đích): "
+                    + ", ".join(f"{t.title}(~mốc {t.planned_payoff_order})"
+                                for t in overdue[:15]))
     return "\n".join(lines)[:2400]
 
 
@@ -729,6 +775,27 @@ async def h_arc_chapters(db, run, step):
     existing = [c.title for c in (await db.scalars(select(Chapter).where(
         Chapter.project_id == run.project_id).order_by(Chapter.order_index))).all()]
     want = arc_meta.get("chapter_count")
+    # clamp theo ngân sách target — check SỚM trước call AI, đỡ 1 call vô ích;
+    # về sau cũng cắt chs theo remaining (C22/#9)
+    remaining = (run.target_chapters - len(existing)
+                 if run.target_chapters else None)
+    if remaining is not None and remaining <= 0:
+        return {"chapters": 0, "note": "đã đạt target — không dàn thêm"}
+    # resolution sweep: sóng sẽ chạm/cán target → bắt outline trả nợ hố thay vì
+    # để treo vô thời hạn (C12 — trước chỉ annotate lẻ tẻ, không bước thu hồi)
+    sweep = ""
+    if remaining is not None and \
+            len(existing) + (want or 8) >= run.target_chapters * 0.85:
+        overdue = list((await db.scalars(select(Thread).where(
+            Thread.project_id == run.project_id, Thread.status == "OPEN",
+            Thread.planned_payoff_order <= run.target_chapters))).all())
+        if overdue:
+            sweep = ("\n\n=== NỢ HỐ PHẢI TRẢ (sóng cuối) ===\nCác hố sau đã "
+                     "quá/đến cửa sổ payoff — hồi này BẮT BUỘC dàn chương trả "
+                     "từng cái, hoặc ghi 'để-ngỏ có chủ đích' nếu cố tình mở:\n"
+                     + "\n".join(f"- {t.title} (payoff dự kiến ~mốc "
+                                 f"{t.planned_payoff_order})"
+                                 for t in overdue[:20]))
     # truyện dài: chỉ cần ~30 chương gần nhất để nối mạch — tránh prompt phình
     recent = existing[-30:]
     written = await _written_ctx(db, run)
@@ -739,9 +806,10 @@ async def h_arc_chapters(db, run, step):
               + ("\n".join(recent) or "(chưa có)")
               + (f"\n\n=== DIỄN BIẾN ĐÃ VIẾT ===\n{written}" if written else "")
               + f"\n\n=== HỒI CẦN DÀN ===\n{arc.title}"
-              + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get("goal") else "")
+              + (f" — goal: {arc_meta.get('goal')}" if arc_meta.get('goal') else "")
               + (f" — ~{want} chương" if want else "")
               + (f"\n\n=== ĐỊNH HƯỚNG TÁC GIẢ CHO HỒI NÀY ===\n{wave_hint}" if wave_hint else "")
+              + sweep
               + "\n\nDàn chương cho hồi này theo schema.")
     text, _ = await ai_call(db, run, "arc_chapters", prompt,
                             system=OUTLINE_ARC_SYSTEM)
@@ -753,7 +821,7 @@ async def h_arc_chapters(db, run, step):
         Chapter.project_id == run.project_id))).all()), default=0)
     beats = ctx.get("beats") or {}
     n = 0
-    for c in chs[:40]:
+    for c in chs[:min(40, remaining or 40)]:
         order += 1
         ch = Chapter(project_id=run.project_id, volume_id=arc.volume_id, arc_id=arc.id,
                      title=_clip(c.get("title"), 240) or f"Chương {order}",
@@ -938,7 +1006,7 @@ async def extract_chapter_facts(db, pid: str, ch, run=None) -> int:
     vẫn ghi origin="ai" (run_id=None) để lần sau wipe được."""
     scenes = [s for s in (await db.scalars(select(Scene).where(
         Scene.chapter_id == ch.id).order_by(Scene.order_index))).all()]
-    prose = "\n\n".join(s.prose for s in scenes if s.prose)[:16000]
+    prose = "\n\n".join(s.prose for s in scenes if s.prose)[:24000]
     if not prose.strip():
         raise ValueError("chapter chưa có prose")
     chars = {c.name: c for c in (await db.scalars(select(Character).where(
@@ -947,27 +1015,96 @@ async def extract_chapter_facts(db, pid: str, ch, run=None) -> int:
         Location.project_id == pid))).all()}
     threads = {t.title: t for t in (await db.scalars(select(Thread).where(
         Thread.project_id == pid))).all()}
-    prompt = (f"=== CHƯƠNG {ch.order_index}: {ch.title} ===\n{prose}\n\n"
-              f"=== NHÂN VẬT ĐÃ BIẾT ===\n" + ", ".join(chars)[:800] + "\n\n"
-              f"=== THREAD ĐANG MỞ ===\n" + ", ".join(threads)[:400] + "\n\n"
-              "Trích facts theo schema chapter_facts.")
-    if run is not None:
-        text, _ = await ai_call(db, run, "chapter_facts", prompt)
+    # dedupe fuzzy (C17): model hay đặt lại tên thread hơi khác ("Hai Vạch" vs
+    # "Que thử hai vạch") → trước đây mỗi lần lệch tên là 1 Thread mới. Map
+    # normalize (bỏ dấu, lowercase) + containment để touch rơi về thread gốc.
+    def _tnorm(s: str) -> str:
+        s = unicodedata.normalize("NFKD", (s or "").lower())
+        s = "".join(c for c in s if not unicodedata.combining(c))
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", s)).strip()
+
+    threads_norm = {_tnorm(t.title): t for t in threads.values()}
+
+    def _find_thread(title: str):
+        if title in threads:
+            return threads[title]
+        n = _tnorm(title)
+        if not n:
+            return None
+        if n in threads_norm:
+            return threads_norm[n]
+        # containment hai chiều — chỉ khi phần ngắn ≥8 ký tự để tránh gộp
+        # nhầm ("Nam" nằm trong mọi thứ)
+        for tn, th in threads_norm.items():
+            if len(tn) >= 8 and (tn in n or n in tn):
+                return th
+        return None
+
+    async def _ask(part_prose: str, part_label: str) -> dict:
+        prompt = (f"=== CHƯƠNG {ch.order_index}: {ch.title}{part_label} ===\n{part_prose}\n\n"
+                  f"=== NHÂN VẬT ĐÃ BIẾT ===\n" + ", ".join(chars)[:800] + "\n\n"
+                  f"=== THREAD ĐANG MỞ ===\n" + ", ".join(threads)[:400] + "\n\n"
+                  "Trích facts theo schema chapter_facts.")
+        if run is not None:
+            text, _ = await ai_call(db, run, "chapter_facts", prompt)
+        else:
+            sys_p, body, _ = await build_story_prompt(db, pid, "chapter_facts", prompt)
+            t0 = time.monotonic()
+            result = await ModelRouter(db).complete(ModelRequest(
+                task="chapter_facts", prompt=body, project_id=pid, system=sys_p))
+            db.add(AiTurn(project_id=pid, scope_id=ch.id, task="chapter_facts",
+                          prompt_excerpt=body[:4000],
+                          reply_text=(result.text or "")[:20000],
+                          provider=result.provider or "", model=result.model or "",
+                          latency_ms=int((time.monotonic() - t0) * 1000)))
+            text = result.text or ""
+        return parse_json(text) or {}
+
+    if len(prose) > 11000:
+        # gateway provider cắt request nặng >60s → 504: chương dài trích
+        # theo TỪNG cảnh (prompt+output nhỏ, chắc qua), gộp kết quả.
+        # cảnh lỗi thì bỏ qua — MISSING_EXTRACTION/check sẽ flag sau.
+        data = {}
+        recaps = []
+        for si, s in enumerate(scenes):
+            if not (s.prose or "").strip():
+                continue
+            try:
+                d = await _ask(s.prose[:9000], f" (cảnh {si + 1}: {s.title})")
+            except Exception:
+                continue
+            for k, v in d.items():
+                if isinstance(v, list):
+                    data.setdefault(k, []).extend(v)
+            if (d.get("recap") or "").strip():
+                recaps.append(f"{s.title}: {d['recap'].strip()}")
+        data["recap"] = " ".join(recaps).strip()
     else:
-        sys_p, body, _ = await build_story_prompt(db, pid, "chapter_facts", prompt)
-        result = await ModelRouter(db).complete(ModelRequest(
-            task="chapter_facts", prompt=body, project_id=pid, system=sys_p))
-        db.add(AiTurn(project_id=pid, scope_id=ch.id, task="chapter_facts",
-                      prompt_excerpt=body[:4000],
-                      reply_text=(result.text or "")[:4000],
-                      provider=result.provider or "", model=result.model or ""))
-        text = result.text or ""
+        data = await _ask(prose, "")
+
+    # model đôi khi trả list chuỗi thay object — normalize tối thiểu để
+    # không crash vòng ghi (string trần không mang entity → bỏ qua thread)
+    def _norm(items: list, key_map: dict) -> list:
+        out = []
+        for it in items:
+            if isinstance(it, dict):
+                out.append(it)
+            elif isinstance(it, str) and key_map:
+                out.append({key_map["*"]: it})
+        return out
+
+    for k, km in {"timeline_events": {"*": "event"},
+                  "canon_facts": {"*": "value_text"}}.items():
+        if k in data:
+            data[k] = _norm(data[k], km)
+    if "state_changes" in data:  # state trần không có entity → rác
+        data["state_changes"] = [s for s in data["state_changes"]
+                                 if isinstance(s, dict)]
 
     def prov(et: str, eid: str):
         db.add(EntityProvenance(project_id=pid, entity_type=et, entity_id=eid,
                                 run_id=run.id if run else None, origin="ai"))
 
-    data = parse_json(text)
     n = 0
     narr = ch.order_index
     for e in (data.get("timeline_events") or [])[:15]:
@@ -989,21 +1126,33 @@ async def extract_chapter_facts(db, pid: str, ch, run=None) -> int:
                         story_time=s_.get("story_time"), narrative_order=narr)
         db.add(st); await db.flush(); prov("story_state", st.id); n += 1
     for t_ in (data.get("thread_touches") or data.get("foreshadow_updates") or [])[:15]:
+        if not isinstance(t_, dict):
+            continue
         title = (t_.get("thread") or t_.get("thread_title") or t_.get("id") or "").strip()
         if not title:
             continue
-        th = threads.get(title)
+        th = _find_thread(title)
         if not th:
             th = Thread(project_id=pid, title=title,
                         thread_type=_clip(t_.get("thread_type"), 32) or "mystery",
                         status="OPEN", description=t_.get("description"))
             db.add(th); await db.flush(); threads[title] = th
+            threads_norm[_tnorm(title)] = th
             prov("thread", th.id)
+        beat_type = (_clip(t_.get("action") or t_.get("beat_type"), 24)
+                     or "reinforcement")
         beat = ThreadBeat(project_id=pid, thread_id=th.id,
                           scene_id=scenes[0].id if scenes else None,
-                          beat_type=_clip(t_.get("action") or t_.get("beat_type"), 24) or "reinforcement",
+                          beat_type=beat_type,
                           narrative_order=narr, notes=_clip(t_.get("description") or t_.get("note"), 300))
         db.add(beat); await db.flush(); prov("thread_beat", beat.id); n += 1
+        # auto-resolve (C23): model báo payoff/resolution + thread OPEN → đánh
+        # RESOLVED luôn, khỏi còn mở mãi sau khi đã trả trong văn. Không resolve
+        # khi beat chỉ là reinforcement/setup/progress — tránh false-positive.
+        if th.status == "OPEN" and (beat_type or "").lower() in (
+                "payoff", "resolution", "resolve", "resolved",
+                "closure", "close", "closed"):
+            th.status = "RESOLVED"
     for f_ in (data.get("canon_facts") or [])[:15]:
         cf = CanonFact(project_id=pid,
                        subject_type=_clip(f_.get("subject_type"), 64) or "story",
@@ -1050,6 +1199,13 @@ HANDLERS = {
 
 _live: dict[str, asyncio.Task] = {}
 
+_TRANSIENT = ("504", "503", "502", "Gateway Time-out", "timed out", "Timeout", "Connect")
+
+
+def _is_transient(e: Exception) -> bool:
+    s = str(e)
+    return any(t in s for t in _TRANSIENT)
+
 
 async def tick(run_id: str) -> str:
     """Một vòng: load run → check status → route → execute → commit.
@@ -1068,20 +1224,34 @@ async def tick(run_id: str) -> str:
                     finished_at=datetime.utcnow()))
         facts = await load_facts(db, run)
         step = next_step(run, facts)
+        if step is not None:
+            # đếm mọi attempt (kể cả interrupted) — transient-fail được retry
+            # nhưng vẫn cap tổng số lần để step lỗi vĩnh viễn không loop mãi
+            attempts = await db.scalar(
+                select(func.count()).select_from(AuthoringStep).where(
+                    AuthoringStep.run_id == run.id,
+                    AuthoringStep.step_key == step.key)) or 0
+        if step is not None and step.key == "__target_done__":
+            # hard-stop: đủ target_chapters → hoàn tất (không phải checkpoint —
+            # checkpoint chờ duyệt sẽ để tác giả approve rồi lại checkpoint rỗng)
+            run.status = "complete"
+            run.last_error = None
+            await db.commit()
+            return "complete"
         if step is not None and step.key == "__wave_pause__":
-            # cờ 1-lần pause_after_wave vừa bắn — checkpoint để tác giả chen vào.
-            # wave_paused_for = hồi SẮP sang — approve xong tick lại sẽ thấy ranh
-            # giới này đã checkpoint rồi, không bắn lặp (goal_mode=waves)
-            run.pause_after_wave = False
+            # pause_after_wave giờ là cờ BỀN (C4/C16) — KHÔNG reset ở đây:
+            # bật một lần thì dừng sau mỗi ranh giới sóng tới khi tác giả tắt.
+            # wave_paused_for = hồi SẮP sang — approve xong tick lại sẽ thấy
+            # ranh giới này đã checkpoint rồi, không bắn lặp (goal_mode=waves)
             ctx = _premise_ctx(run)
             ctx["wave_paused_for"] = step.ref_id
             run.cursor_json = json.dumps(ctx, ensure_ascii=False)
             run.status = "awaiting_review"
             await db.commit()
             return "checkpoint"
-        if step is not None and facts.failed.get(step.key, 0) >= 2:
+        if step is not None and (facts.failed.get(step.key, 0) >= 2 or attempts >= 8):
             run.status = "failed"
-            run.last_error = f"{step.key}: fail quá 2 lần — cần sửa rồi resume"
+            run.last_error = f"{step.key}: fail quá 2 lần (hoặc {attempts} lần thử) — cần sửa rồi resume"
             await db.commit()
             return "stopped"
         if step is None:
@@ -1123,7 +1293,9 @@ async def tick(run_id: str) -> str:
                 return "stopped"
             srow = await db.get(AuthoringStep, sid)
             if srow:
-                srow.status = "failed"
+                # transient (504 gateway/timeout/connection) → interrupted:
+                # retry sạch không nuốt quota 2-lần-fail; attempts cap ở trên
+                srow.status = "interrupted" if _is_transient(e) else "failed"
                 srow.error = str(e)[:2000]
                 srow.finished_at = datetime.utcnow()
             else:  # edge: row mất → ghi failed mới như cũ

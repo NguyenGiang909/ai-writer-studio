@@ -8,7 +8,13 @@ import { toast } from "../lib/toast";
 type Turn = {
   id: string; task: string; scope_id: string; provider: string; model: string;
   prompt_excerpt: string; reply_text: string; created_at: string;
+  latency_ms?: number | null;
 };
+
+function fmtMs(ms?: number | null) {
+  if (ms == null) return "";
+  return ms >= 60000 ? `${(ms / 60000).toFixed(1)}ph` : `${(ms / 1000).toFixed(1)}s`;
+}
 
 export default function AiTurnsCard({ projectId }: { projectId: string }) {
   const lang = useLang();
@@ -65,7 +71,8 @@ export default function AiTurnsCard({ projectId }: { projectId: string }) {
           <summary>
             <span className="pill">{tr.task}</span>{" "}
             <small className="subtle">
-              {tr.provider}{tr.model ? `/${tr.model}` : ""} ·{" "}
+              {tr.provider}{tr.model ? `/${tr.model}` : ""}
+              {tr.latency_ms != null && <> · {fmtMs(tr.latency_ms)}</>} ·{" "}
               {new Date(tr.created_at + "Z").toLocaleString(loc)}
             </small>
           </summary>

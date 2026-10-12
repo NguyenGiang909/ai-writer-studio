@@ -8,6 +8,7 @@ import { useLang } from "../lib/use-lang";
 import { toast } from "../lib/toast";
 import SceneHistory from "./SceneHistory";
 import ChapterCastPanel from "./ChapterCastPanel";
+import ChapterToolsPanel, {ToolData} from "./ChapterToolsPanel";
 
 const SCENE_TYPES = [
   "mystery", "discovery", "relationship", "intimacy", "daily_life",
@@ -40,6 +41,7 @@ export default function SceneEditor({
   threads = [],
   abilities = [],
   locations = [],
+  toolData = {world:[],locations:[],timeline:[],styles:[]},
   reviewHref,
   memoryHref,
   prevScene,
@@ -52,9 +54,10 @@ export default function SceneEditor({
   sceneIndex?: number;
   sceneTotal?: number;
   characters: { id: string; name: string }[];
-  threads?: { id: string; title: string; status?: string }[];
+  threads?: { id: string; title: string; status?: string; must_resolve?: boolean; important?: boolean }[];
   abilities?: { id: string; name: string; ability_type?: string | null }[];
   locations?: { id: string; name: string }[];
+  toolData?: ToolData;
   reviewHref?: string;
   memoryHref?: string;
   prevScene?: { href: string; label: string } | null;
@@ -293,6 +296,7 @@ export default function SceneEditor({
           abilities={abilities}
         />
         <article className="editor-wrap">
+        <ChapterToolsPanel projectId={projectId} chapter={chapter} data={toolData} inline />
         <input
           className="scene-title-input chapter-title"
           value={title}
@@ -468,9 +472,7 @@ export default function SceneEditor({
           </nav>
         )}
       </article>
-        <aside className="tool-rail" aria-hidden="true">
-          <div className="cast-head">{t(lang, "Công cụ")}</div>
-        </aside>
+        <ChapterToolsPanel projectId={projectId} chapter={chapter} data={toolData} />
       </div>
       {showHistory && (
         <SceneHistory

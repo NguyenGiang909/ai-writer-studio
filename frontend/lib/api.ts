@@ -39,6 +39,13 @@ export function patchJSON(path: string, body: unknown) {
     body: JSON.stringify(body),
   });
 }
+export function putJSON(path: string, body: unknown) {
+  return request(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 export function delJSON(path: string) {
   return request(path, { method: "DELETE" });
 }

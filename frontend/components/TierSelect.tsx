@@ -34,10 +34,9 @@ export default function TierSelect({ id, tier, override }: {
   }
 
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+    <span className="tier-control">
       <select
-        className="input"
-        style={{ padding: "3px 8px", fontSize: 12, width: "auto" }}
+        className="tier-select" aria-label={t(lang, "Năng lực API")}
         disabled={busy}
         value={override ?? "auto"}
         onChange={(e) => change(e.target.value)}

@@ -154,7 +154,7 @@ export default function ReviewIssues({
                   ))}
                 </div>
               )}
-              <div className="issue-actions">
+              <div className="issue-actions issue-navigation">
                 {issueLinks(projectId, i.evidence).map((l) => (
                   <Link key={l.href + l.label} href={l.href} className="issue-link">{t(lang, l.label)}</Link>
                 ))}

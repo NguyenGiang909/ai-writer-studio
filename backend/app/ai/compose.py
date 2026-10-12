@@ -6,7 +6,7 @@ Keeps output bounded (~token estimate via len//4) and never mutates anything.
 
 import json
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, Chapter, Scene, Volume, Arc
@@ -415,6 +415,8 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
     pool = "\n".join(pool_parts).lower()
 
     chars = list((await db.scalars(select(Character).where(Character.project_id == pid))).all())
+    pinned_c: set = set()
+    ranked: list = []
     if chars:
         alias_map: dict[str, list[str]] = {}
         for a in (await db.scalars(select(Alias).where(Alias.project_id == pid))).all():
@@ -461,22 +463,39 @@ async def _story_context(db: AsyncSession, pid: str, scene_id: str | None,
     # dàn chương: năng lực tác giả chọn — trước giờ Ability không hề được inject,
     # model không biết cơ chế/giới hạn nên chưa bao giờ dùng đúng
     ab_ids = set(cast.get("abilities") or [])
-    if ab_ids:
+    # auto-inject theo chủ sở hữu (C11): ability gắn owner_character_id → tự
+    # vào prompt khi nhân vật đó có mặt/chủ động trong chương — tác giả không
+    # phải ghim tay từng chương (pin tay vẫn ưu tiên, gộp cả hai nguồn)
+    owner_ids = {c.id for c in ranked} | pinned_c
+    conds = [Ability.id.in_(ab_ids)] if ab_ids else []
+    if owner_ids:
+        conds.append(Ability.owner_character_id.in_(owner_ids))
+    if conds:
         abs_ = list((await db.scalars(select(Ability).where(
-            Ability.project_id == pid, Ability.id.in_(ab_ids)))).all())
-        if abs_:
-            lines = ["Năng lực trong chương (tác giả chọn — tôn trọng cơ chế đã chốt):"]
-            for ab in abs_:
-                det = []
-                if ab.can_do: det.append(f"làm được: {_clip(ab.can_do, 160)}")
-                if ab.cannot_do: det.append(f"KHÔNG làm được: {_clip(ab.cannot_do, 160)}")
-                if ab.limits: det.append(f"giới hạn: {_clip(ab.limits, 120)}")
-                if ab.cost: det.append(f"giá phải trả: {_clip(ab.cost, 120)}")
-                if ab.conditions: det.append(f"điều kiện: {_clip(ab.conditions, 120)}")
-                lines.append(f"- {ab.name}"
-                             + (f" [{ab.ability_type}]" if ab.ability_type else "")
-                             + (" — " + "; ".join(det) if det else ""))
-            sections.append(("\n".join(lines), 4, f"cast-abilities({len(abs_)})"))
+            Ability.project_id == pid, or_(*conds)))).all())
+    else:
+        abs_ = []
+    if abs_:
+        owner_name = {c.id: c.name for c in ranked}
+        abs_.sort(key=lambda a: (a.id not in ab_ids, a.name or ""))
+        lines = ["Năng lực trong chương (tôn trọng cơ chế đã chốt — KHÔNG cho "
+                 "nhân vật dùng vượt cannot_do/limits/cost):"]
+        for ab in abs_:
+            det = []
+            if ab.can_do: det.append(f"làm được: {_clip(ab.can_do, 160)}")
+            if ab.cannot_do: det.append(f"KHÔNG làm được: {_clip(ab.cannot_do, 160)}")
+            if ab.limits: det.append(f"giới hạn: {_clip(ab.limits, 120)}")
+            if ab.cost: det.append(f"giá phải trả: {_clip(ab.cost, 120)}")
+            if ab.conditions: det.append(f"điều kiện: {_clip(ab.conditions, 120)}")
+            if ab.counters: det.append(f"khắc chế: {_clip(ab.counters, 120)}")
+            tag = ("tác giả chọn" if ab.id in ab_ids
+                   else f"của {owner_name.get(ab.owner_character_id, '?')}")
+            lines.append(f"- {ab.name}"
+                         + (f" [{ab.ability_type}]" if ab.ability_type else "")
+                         + f" ({tag})"
+                         + (" — " + "; ".join(det) if det else ""))
+        sections.append(("\n".join(lines), 4,
+                         f"cast-abilities({len(abs_)} pin+auto)"))
 
     facts = list((await db.scalars(select(CanonFact).where(
         CanonFact.project_id == pid, CanonFact.truth_status.in_(["CANON", "PLANNED"])))).all())
@@ -530,18 +549,22 @@ async def _open_threads_block(db: AsyncSession, pid: str,
                               pinned_ids: set[str] | None = None
                               ) -> tuple[str | None, int]:
     threads = list((await db.scalars(select(Thread).where(
-        Thread.project_id == pid, Thread.status == "OPEN"))).all())
+        Thread.project_id == pid, or_(Thread.status == "OPEN", ((Thread.must_resolve == True) | (Thread.important == True)) & Thread.status.notin_(["RESOLVED", "ABANDONED"]))))).all())
     if not threads:
         return None, 0
     pinned_ids = pinned_ids or set()
-    threads.sort(key=lambda t: 0 if t.id in pinned_ids else 1)
-    block = "Hố/tuyến đang mở:\n" + "\n".join(
+    threads.sort(key=lambda t: (not t.must_resolve, not t.important, t.id not in pinned_ids, t.title))
+    chosen = [t for t in threads if t.must_resolve or t.important]
+    chosen += [t for t in threads if not t.must_resolve and not t.important][:10]
+    block = "Hố/tuyến cần theo dõi — cân nhắc mỗi lần viết, không tự đóng hố; chỉ tác giả xác nhận đã xử lý:\n" + "\n".join(
         f"- {th.title}"
+        + (" [Hố bắt buộc lấp — cần payoff trước khi kết truyện; không ép lấp ngay]" if th.must_resolve else "")
+        + (" [Hố quan trọng]" if th.important else "")
         + (" — chương này tác giả có ý đụng tới" if th.id in pinned_ids else "")
         + (f" (payoff dự kiến ~mốc {th.planned_payoff_order})"
            if th.planned_payoff_order else "")
-        for th in threads[:10])
-    return block, min(len(threads), 10)
+        for th in chosen)
+    return block, len(chosen)
 
 
 async def build_story_prompt(db: AsyncSession, pid: str, task: str,
@@ -550,6 +573,24 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
                              ) -> tuple[str | None, str, list[str]]:
     """Compose (system, prompt, context_manifest). Raw prompt for unknown tasks."""
     ctx, manifest = await _story_context(db, pid, scene_id, user_prompt, task)
+    if task in {"writing","expand","scene_expand","chapter_write","revision","skeleton","chapter_outline"}:
+        cast = await _chapter_cast(db, scene_id=scene_id, chapter_id=chapter_id)
+        from app.models.story import WorldEntity, Location, StyleProfile
+        for key, model, label in [("world",WorldEntity,"Thế giới"),("locations",Location,"Địa điểm"),
+                                  ("timeline",StoryEvent,"Timeline"),("styles",StyleProfile,"Phong cách")]:
+            ids=cast.get(key) or []
+            if not isinstance(ids,list) or not ids: continue
+            rows=list((await db.scalars(select(model).where(model.project_id==pid,model.id.in_(ids)))).all())
+            if rows:
+                lines=[f"- {getattr(x,'name',None) or getattr(x,'summary','')}: "
+                       + _clip(getattr(x,'instructions',None) or getattr(x,'description',None) or getattr(x,'summary',''),1600) for x in rows]
+                ctx += "\n\n" + label + " — tác giả chọn cho chương (tham chiếu, không tự sửa Canon):\n" + "\n".join(lines)
+                manifest.append(f"selected {key}: {len(rows)}")
+        if task in {"writing","expand","scene_expand","chapter_write","revision"}:
+            block,n=await _open_threads_block(db,pid,set(cast.get("threads") or []))
+            if block:
+                ctx += "\n\n" + block
+                manifest.append(f"included open threads: {n}")
     if task in {"writing", "expand", "scene_expand", "chapter_write"}:
         constraints = ""
         if scene_id:

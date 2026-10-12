@@ -14,15 +14,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
   const { projectId } = await params;
   const lang = await getLang();
   const base = `/api/v1/projects/${projectId}`;
-  const [pending, resolved, continuity, manuscript] = await Promise.all([
+  const [pending, resolved, continuity, manuscript, threads] = await Promise.all([
     safe(`${base}/suggestions?status=pending`),
     safe(`${base}/suggestions`),
     safe(`${base}/continuity/check`),
     safe(`${base}/manuscript`),
+    safe(`${base}/threads`),
   ]);
   const allChapters = manuscript.chapters ?? [];
   const chapters = allChapters
-    .filter((c: any) => (c.scenes ?? []).some((s: any) => s.prose))
+    .filter((c: any) => (c.scenes ?? []).some((s: any) => (s.words ?? 0) > 0))
     .map((c: any) => ({ id: c.id, title: c.title, order_index: c.order_index }));
   const arcs = (manuscript.arcs ?? []).map((a: any) => {
     const chs = allChapters.filter((c: any) => c.arc_id === a.id);
@@ -41,6 +42,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
           <div className="eyebrow">{t(lang, "Báo cáo tư vấn")}</div>
           <h1>Continuity</h1>
         </div>
+      </div>
+      <div className="notice priority-review">
+        <b>{t(lang,"Hố ưu tiên chưa xử lý")}</b>
+        {threads.filter((th:any)=>!["RESOLVED","ABANDONED"].includes(th.status)&&(th.must_resolve||th.important)).sort((a:any,b:any)=>Number(!!b.must_resolve)-Number(!!a.must_resolve)).map((th:any)=><p key={th.id}>{th.must_resolve?t(lang,"Hố bắt buộc lấp"):t(lang,"Hố quan trọng")}: <b>{th.title}</b></p>)}
+        <Link href={`/projects/${projectId}/threads`}>{t(lang,"Quản lý hố ưu tiên")} →</Link>
       </div>
       <div className="grid">
         <div className="card">

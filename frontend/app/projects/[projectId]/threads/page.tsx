@@ -1,4 +1,6 @@
 import Link from "next/link";
+import ThreadPriorityBoard from "../../../../components/ThreadPriorityBoard";
+import ThreadPriorityControls from "../../../../components/ThreadPriorityControls";
 import { getJSON } from "../../../../lib/api";
 import PostForm from "../../../../components/PostForm";
 import ActionButton from "../../../../components/ActionButton";
@@ -61,10 +63,11 @@ export default async function ThreadsPage({ params }: { params: Promise<{ projec
         </div>
         {threadForm}
       </div>
+      <ThreadPriorityBoard threads={threads} base={base} current={current} lang={lang} />
       <div className="grid">
         <div className="card">
           <h3>{tr(lang, "Đang mở · {n}", { n: open.length })}</h3>
-          {threads.map((t: any) => {
+          {threads.filter((t:any)=>["RESOLVED","ABANDONED"].includes(t.status)||(!t.must_resolve&&!t.important)).map((t: any) => {
             const warn = BADGE_WARN.has(t.status);
             const beats = beatsByThread[t.id] ?? [];
             const payoff = beats.filter((x: any) => x.beat_type === "payoff").length;
@@ -78,6 +81,7 @@ export default async function ThreadsPage({ params }: { params: Promise<{ projec
               <div key={t.id} className="thread">
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <b>{t.title}</b>
+                  <ThreadPriorityControls endpoint={`${base}/threads/${t.id}`} mustResolve={!!t.must_resolve} important={!!t.important} />
                   <small>
                     {t.thread_type !== "custom" ? `${threadTypeLabel(t.thread_type, lang)} · ` : ""}
                     {cap((t.description ?? "")

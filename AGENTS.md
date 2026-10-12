@@ -22,7 +22,8 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 
 ## Verify
 
-- Backend tests: `cd backend && pytest` — hiện **104 pass** (warnings deprecation: FastAPI `on_event`, `datetime.utcnow`, asyncio policy — chưa xử lý)
+- Backend tests: `cd backend && pytest` — **162 pass**; `pytest.ini` chạy **session-scoped loop** + conftest dùng **file DB tạm** (aiosqlite conn bind đúng loop tạo nó + `:memory:` mỗi conn = DB riêng — job nền viết, request đọc → không thấy nhau)
+- KHÔNG đổi lại loop-scope function hay `:memory:` — background `asyncio.create_task` sẽ chết `bound to a different event loop`
 - Frontend: `cd frontend && npx tsc --noEmit`
 - Browser test: Playwright đã cài ở `C:\Users\Admin\AppData\Local\Temp\evon-probe\` (script `node -e "..."` lái `localhost:3000`)
 - Context AI preview miễn phí: `POST /api/v1/projects/{pid}/ai/context-manifest` body `{task, scene_id}` — xem manifest không tốn model call. Nút tương đương trong UI: `⌄ Ngữ cảnh được sử dụng` (RightPanel, tab Mở rộng)
@@ -73,11 +74,29 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - Free-text `value_text` trong StoryState/seed viết dạng `KEY_SubKey` / `VERB_args` (vd `STOLEN_BY_Ba_Mắt_Lươn`, `SEALED_Tàng_Khố`, `SECRETLY_PROTECTS_Khánh`) — dịch ở tầng display qua `stateText.ts`, KHÔNG sửa data
 - UI/UX chuẩn: `.devin/skills/evon-uiux/` (app/dashboard); `.devin/skills/uxui/SKILL.md` trỏ làm authority chính, luật dự án override khi mâu thuẫn
 
+## Đợt vá m10-fix (migration 0028 — chi tiết `docs/BIEN_BAN_VAN_HANH.md` mục F)
+
+- **Hard-stop**: `next_step` trả sentinel `__target_done__` khi `len(chapters) ≥ target_chapters`; `arc_chapters` clamp theo ngân sách còn lại. `__wave_pause__` tương tự + `wave_paused_for` chống bắn lặp
+- **`pause_after_wave` là cờ BỀN** (không tự reset); đặt được `running`+`awaiting_review` qua POST pause-after-wave hoặc `PATCH /authoring/run` (target/wps/call_mode/goal_mode sửa giữa run, engine đọc mỗi tick)
+- **AuditJob** (`audit_jobs`): deep-check chapter/range → POST trả `job_id` ngay, `_spawn_job` GIỮ STRONG-REF task (create_task không ref = GC hủy), `_reap_stale_job` (>8ph running → failed, chống mồ côi chặn dedupe); GET `/audit/jobs/{id}` poll progress/result
+- **KiraAI**: non-stream bị gateway cắt ~60s → mọi call qua `_complete_streaming` (SSE, gộp delta); `read=120.0` phát hiện stream câm; `_PROVIDER_SEM=Semaphore(2)` trong router giới hạn tranh call
+- **Cast chương**: `PUT /chapters/{id}/cast` validate id cùng project (422 liệt kê), KHÔNG PATCH cast_json trần
+- **AuditFinding** dismiss/reopen: `status`+`dismiss_key`; deep-check lọc issue trùng motif đã dismiss
+- `ai_turns.latency_ms` + reply cap **20000**; `compose` auto-inject `abilities.owner_character_id` theo nhân vật có mặt; checker mới `LOCATION_DRIFT/PHASE_LEAK/TITLE_CONTENT_DRIFT/FACT_DRIFT`; thread extraction auto-`RESOLVED` khi có beat payoff + dedupe theo title chuẩn hoá
+
+## Đóng gói (package/)
+
+- Plan + checklist: `docs/KE_HOACH_DONG_GOI.md`. Build: `powershell -ExecutionPolicy Bypass -File package\build_package.ps1`
+- Kiến trúc: `writer-api.exe` (PyInstaller `backend/writer-api.spec`, desktop_main → ENVIRONMENT=production, port **8765**, DB+secret `%LOCALAPPDATA%/AIWriterStudio`) + `node.exe web\server.js` (Next standalone, port **3300**, `NEXT_PUBLIC_API_URL=…:8765` bake lúc build)
+- Copy chuẩn: `.next/standalone/*` → `web/`; **phải copy tay** `.next/static` → `web/.next/static` và `public/` (standalone không chứa — bản 6/10 thiếu → server.js chết "no production build")
+- `allow_fake_provider` prod default **False** (dev/test True); `/health` trả `build_id` (build_id.txt cạnh exe) + environment
+- `ensure_schema()` lo nâng cấp SQLite (create_all + ALTER ADD COLUMN) — cột mới phải nullable
+
 ## Backlog / hướng tiếp theo
 
 - C+A roadmap memory: C đã xong (session turns + summaries + ranking); A = OpenAI Responses thread / Gemini chats khi cần provider giữ history thật
 - Timeline nâng tiếp: group/filter theo thực thể cho events, semantic translation map đầy đủ hơn
-- Auth thật, retrieval (embedding/FTS — `func.lower(col).like` chỉ case-fold ASCII, chưa normalize dấu), Postgres migration test, Tauri packaging
+- Auth thật, retrieval (embedding/FTS — `func.lower(col).like` chỉ case-fold ASCII, chưa normalize dấu; search hiện word-boundary regex ở tầng Python), Postgres migration test, Tauri packaging
 
 ## Test data / id hay dùng
 
