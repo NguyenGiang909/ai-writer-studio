@@ -91,6 +91,8 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - Copy chuẩn: `.next/standalone/*` → `web/`; **phải copy tay** `.next/static` → `web/.next/static` và `public/` (standalone không chứa — bản 6/10 thiếu → server.js chết "no production build")
 - `allow_fake_provider` prod default **False** (dev/test True); `/health` trả `build_id` (build_id.txt cạnh exe) + environment
 - `ensure_schema()` lo nâng cấp SQLite (create_all + ALTER ADD COLUMN) — cột mới phải nullable
+- **D1 Tauri** (`package/tauri/`): shell Rust spawn sidecar (port-probe tái dùng, không trùng), splash→navigate :3300, tray Mở/Thoát (X=ẩn tray), Exit→kill con. Build `npx tauri build` → NSIS ~65MB currentUser + MSI. Node sidecar cần env PORT=3300 HOSTNAME=127.0.0.1. `.gitignore` mở `package/` cho source, vẫn ignore binary/target/gen
+- `.ps1` phải **ASCII-only hoặc UTF-8 BOM** — PS5.1 đọc no-BOM là ANSI, em-dash `—`/dấu tiếng Việt vỡ parse
 
 ## Backlog / hướng tiếp theo
 
