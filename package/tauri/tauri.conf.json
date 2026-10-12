@@ -30,6 +30,7 @@
     "resources": [
       "../writer-api.exe",
       "../node.exe",
+      "../build_id.txt",
       "../web"
     ],
     "category": "Productivity",

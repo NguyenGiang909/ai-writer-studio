@@ -31,6 +31,8 @@ fn find_res(name: &str) -> Option<PathBuf> {
     let d = exe_dir();
     let cands = [
         d.join(name),
+        // NSIS install: Tauri đặt bundle.resources vào _up_/
+        d.join("_up_").join(name),
         d.join("resources").join(name),
         // dev: target/{debug,release} -> tauri/ -> package/
         d.join("..").join("..").join("..").join(name),
