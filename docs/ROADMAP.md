@@ -82,14 +82,37 @@ ai ở đâu, skill gì, hố nào OPEN, canon nào active — tại thời đi�
 - [ ] ζ1 Auth thật (thay DEV_USER) + audit access-check
 - [ ] ζ2 Retrieval thông minh (entity-match) thay "nhét tất cả"; pgvector sau
 - [ ] ζ3 Postgres migration khi SQLite đuối
-- [ ] ζ4 Tauri desktop packaging
+- [x] ζ4 Tauri desktop packaging — **D1 xong**: `package/tauri/` shell Rust
+      spawn sidecar (port-probe tái dùng), tray Mở/Thoát, NSIS/MSI installer
+      (docs/KE_HOACH_DONG_GOI.md §5)
 - [ ] ζ5 Architecture Comparison Matrix vs InkWeaver / AI-Novel-Writer /
       AIFictionForge / Sodarie / novel-studio → USE-IDEA/ADAPT/BUILD/SKIP
+
+## GĐ-η · Writing Hub — đa ngôn ngữ & đối chiếu hành văn
+
+Mở rộng từ "1 bản thảo" sang **studio viết đa ngôn ngữ, hiểu phong cách**:
+
+- [ ] η1 **Language variants**: scene/chapter có nhiều phiên bản ngôn ngữ
+      song song (VI/EN/…), chung Canon/StoryState — dịch/rewrite giữ
+      continuity, so sánh cạnh nhau
+- [ ] η2 **Style reference library**: thư viện phong cách truyền thống
+      (Vietnamese lyrical, Japanese minimalism, Russian psychological,
+      French structural…) + nhà văn nổi tiếng — phân tích theo trục nghề
+      (nhịp câu, thị giác, POV, dialogue economy) làm tư liệu đối chiếu
+- [ ] η3 **Style profiles → constraint**: chưng nghề của 1 trường phái/nhà
+      văn thành "style card" inject vào constraint manifest — generate
+      theo style, checker deterministic flag drift về giọng AI generic
+- [ ] η4 **Learn-from-masters**: dán đoạn văn → AI phân rã nghề (craft
+      breakdown) phục vụ quyết định của tác giả — bàn tham khảo, không
+      phải nút clone style
+
+Bất biến giữ nguyên: style/translation là draft & comparison — tác giả
+vẫn chốt; không bản hoá nào tự động ghi đè Canon/prose.
 
 ## Thứ tự thực thi
 
 ```
-α1 → α3 → β1 → β2 → γ1–γ3 → δ → ε → ζ
+α1 → α3 → β1 → β2 → γ1–γ3 → δ → ε → ζ → η
       (α2, α4 song song)     (γ4, γ5 khi có data)
 ```
 

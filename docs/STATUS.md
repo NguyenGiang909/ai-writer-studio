@@ -1,6 +1,28 @@
 
 # AI Writer Studio — GĐ1 Recovery M10 Status
 
+## 2026-10-12 — Đợt m10-fix vận hành + đóng gói D1
+
+- **Engine**: hard-stop `target_chapters` + cleanup phần vượt; `pause_after_wave`
+  cờ bền; `PATCH /authoring/run` sửa config giữa run; `PUT /chapters/{id}/cast`
+  validate id (422).
+- **Audit**: deep-check chuyển `audit_jobs` nền — spawn strong-ref, progress `ts`,
+  heartbeat 60s, `_reap_stale_job` (>8ph → failed, chống mồ côi); finding
+  dismiss/reopen (`status`+`dismiss_key`).
+- **AI**: reply cap 20k + `latency_ms`; `_PROVIDER_SEM(2)`; retry jitter; KiraAI
+  streaming (phá 504@60s); `allow_fake_provider` prod=False.
+- **Continuity**: thêm `TITLE_CONTENT_DRIFT`/`FACT_DRIFT`; endpoint quét
+  hit-map 1 pass/cảnh (4.0s→1.9s trên 69-chương).
+- **Thread**: `must_resolve`/`important` (mig 0029) + priority board; extraction
+  auto-RESOLVED khi có payoff + dedupe theo title.
+- **Perf**: `/manuscript` trả slim scene meta (2.26MB→179KB); prose fetch theo
+  cảnh/chương đang mở; search word-boundary VI + escape LIKE.
+- **Packaging D1**: `package/tauri/` Tauri 2 shell — spawn sidecar port-probe,
+  splash→navigate, tray (X=ẩn tray), exit→kill con, single-instance;
+  `build_package.ps1` rebuild `writer-api.exe`+`web/`; NSIS ~65MB currentUser +
+  MSI, `/health` trả `build_id`+`environment`. Đã verify cài thật trên Windows.
+- Tests: **167 pass**; `pytest.ini` session-loop + conftest file-DB.
+
 ## Recovery milestones implemented
 - M1 Runtime + Manuscript
 - M2 Story Database
