@@ -68,7 +68,7 @@ package/tauri/
 ├── tauri.conf.json      productName "AI Writer Studio", id com.aiwriter.studio
 ├── src/main.rs          shell Rust: spawn sidecar + health poll + tray + cleanup
 ├── frontend/index.html  splash tối (đợi backend+web sống → navigate :3300)
-├── icons/icon.ico       icon app/tray (gen tạm — thay asset thật sau)
+├── icons/               icon thật (W lông vũ) — icon-source.png gốc + bộ đa-size `npx tauri icon`
 ├── capabilities/default.json
 └── build.rs + Cargo.toml + package.json (@tauri-apps/cli 2.12)
 ```
@@ -90,7 +90,7 @@ package/tauri/
 
 ## 6. Còn lại / hướng tiếp
 
-- Icon đang là placeholder gen tự động — cần asset thật (đa-size .ico)
+- ~~Icon placeholder~~ → đã có icon thật v0.1.1 (`icons/icon-source.png` → `npx tauri icon`)
 - Sidecar chết khi app **crash** chỉ được dọn nhờ port-probe khi mở lại; bản sau có thể gắn Job Object (KILL_ON_JOB_CLOSE) để OS tự giết con
 - UPX=True hiện tại → rủi ro AV false-positive; nếu bị quét, build lại `upx=False`
 - Port cố định 8765/3300 — app trả lỗi rõ khi bị chiếm; chưa auto-probe port trống
