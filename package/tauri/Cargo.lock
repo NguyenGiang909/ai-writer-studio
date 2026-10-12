@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-writer-studio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "tauri",
