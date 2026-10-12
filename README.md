@@ -1,8 +1,8 @@
 # AI Writer Studio
 
-**A Story OS for long-form fiction, built for speed without the slop — write first and let AI expand, or let AI draft entire arcs while you audit and repair. Two directions, same authority.**
+**A Story OS for long-form fiction where AI drafts at novel scale and the author directs like an editor-in-chief — let AI write entire arcs and chapters while you audit, or write yourself and let AI expand. Two directions, same authority.**
 
-> Ứng dụng viết tiểu thuyết dài kỳ hai chiều: tác giả viết trước, AI mở rộng — hoặc AI viết nháp cả trăm chương, tác giả rà soát và sửa. Mục tiêu: ra truyện nhanh nhưng chất lượng vẫn do người viết chốt, hạn chế tối đa "AI slop". Mọi gợi ý của AI là bản nháp — không có gì tự động trở thành Canon.
+> Story OS cho tiểu thuyết dài kỳ theo hướng **AI viết nháp quy mô cả cuốn, tác giả đóng vai tổng biên**: đặt mục tiêu, AI viết hàng chục chương theo sóng — rồi rà continuity, sửa từng đoạn, duyệt/từ chối. Ngược lại, tự viết và nhờ AI mở rộng cũng được. Mục tiêu: ra truyện nhanh nhưng chất lượng do người chốt — mọi sản phẩm AI là bản nháp, không gì tự động thành Canon.
 
 ![Status](https://img.shields.io/badge/status-alpha-orange) ![License](https://img.shields.io/badge/license-MIT-blue) ![Backend](https://img.shields.io/badge/backend-FastAPI-009688) ![Frontend](https://img.shields.io/badge/frontend-Next.js%2015-000) ![Desktop](https://img.shields.io/badge/desktop-Tauri%202-24C8D8)
 
@@ -10,10 +10,11 @@
 
 ## Why another AI writing tool?
 
-Most AI writing apps make the model the author. This one makes the model a *fast, auditable* co-writer under an editor-in-chief:
+Most AI writing apps either make the model a ghostwriter you can't audit, or a chat assistant that can't produce at scale. This one makes the model a *draft factory* under an editor-in-chief:
 
-- **The author is the source of truth.** AI output is always a draft — it only becomes canon through an explicit review/approval step.
-- **Two directions, one tool.** Write yourself and ask AI to discuss/expand a passage — or run a whole wave of chapters through the pipeline, then repair: deterministic continuity scan → AI deep-check per chapter → keep-the-value conflict fixes → selection-scoped rewrite of just the paragraph that's wrong.
+- **AI can draft nearly the whole book.** The authoring engine writes chapters in waves — outline → scene skeletons → prose → fact extraction → summaries — with a hard stop at your target, pause/resume, and per-wave review gates. It has been dogfooded end-to-end on a real 69-chapter Vietnamese novel: generated, audited, repaired, and read like a book.
+- **The author is the source of truth.** AI output is always a draft — it only becomes canon through an explicit review/approval step. Author-written prose is never silently rewritten.
+- **Two directions, one tool.** Run a whole wave of chapters through the pipeline then repair — or write yourself and ask AI to discuss/expand a passage. Same authority either way.
 - **Speed is the point; slop is the enemy.** The pipeline is built to catch AI's usual failure modes — POV drift, duplicated openings, forgotten threads, continuity contradictions — with deterministic checkers (code, not another LLM's opinion) and author-gated fixes. Fast generation, human taste.
 - **Continuity is data, not vibes.** Characters, locations, abilities, relationships, canon facts, story states, knowledge states (who knows what, since when) and narrative threads are tracked in a story database that AI is *constrained* by — not trusted to remember.
 - **Long-form scale.** Hundreds of chapters stay manageable via a volume → arc → chapter → scene hierarchy, layered summaries, repair operations that shift the whole narrative axis atomically, and context manifests that show exactly what the model received.
@@ -21,6 +22,7 @@ Most AI writing apps make the model the author. This one makes the model a *fast
 
 ## Features
 
+- **Authoring engine** — long runs that write whole waves of chapters unattended: outline → scene skeletons → prose → fact extraction → summaries, hard-stop at the target chapter, pause/resume, live-editable config, per-wave review gates, auto-resolution of narrative debts when payoffs land
 - **Manuscript editor** — scene-first writing with skeleton notes, briefs, autosave, POV/temporal metadata, per-scene version history with restore
 - **Story database** — characters (aliases, arcs), locations, items, factions, abilities, relationships
 - **Canon & truth layer** — canon facts with truth status (`CANON`/`RUMOR`/`PLANNED`), secrets, author decisions
@@ -36,7 +38,6 @@ Most AI writing apps make the model the author. This one makes the model a *fast
 - **What-if branches** — explore alternate storylines, preview impact, merge only through author decisions
 - **Review queue** — AI-proposed canon/relationship changes wait for author approval
 - **Whole-project tools** — Vietnamese-aware full-text search with deep links, JSON export / Markdown manuscript export, per-chapter reading mode
-- **Authoring engine** — long runs write whole waves of chapters: hard-stop at target, pause/resume, live-editable config, per-wave review gates
 - **Vietnamese-first UI** with English translation
 
 ![AI chapter outline](docs/screenshots/outline-ai.png)
