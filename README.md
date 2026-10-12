@@ -32,7 +32,7 @@ Most AI writing apps either make the model a ghostwriter you can't audit, or a c
 - **Selection-scoped revision** — highlight a passage, AI rewrites only that fragment with surrounding context, preview then splice back — long scenes never hit gateway timeouts
 - **Thread management** — narrative-debt board with `must_resolve`/`important` priorities, auto-`RESOLVED` when the payoff is generated, dedupe on extraction
 - **Timeline** — story-time vs narrative-order events, story states per entity, human-readable state rendering (VI/EN), three view modes
-- **AI assistant (BYOK)** — provider/model routing per task, usage logging with latency, encrypted credentials, capability tier per key (low/standard/strong, auto-detected, overridable), streaming with stall detection + bounded concurrency
+- **AI assistant (BYOK, works on cheap models)** — because canon/continuity lives in the story database and the checkers are deterministic, a small flash-tier model can write entire chapters at cents-scale cost — the demo novel below was drafted on cheap fast models end-to-end. Point the same project at a large model and you simply get better first drafts, faster. Routing per task, capability tier per key (low/standard/strong, auto-detected), encrypted credentials, streaming with stall detection + bounded concurrency
 - **AI memory** — every AI call is persisted (`ai_turns`), recent scene turns are re-injected, layered `story_summaries` with coverage dashboard, relevance-ranked character/canon context with a transparent manifest
 - **Author-approved AI workflows** — scene skeleton suggestions, chapter outline generation (edit/approve before scenes are created), expansion & revision drafts, scene summarization, character profile assist, per-chapter cast pinning (characters/threads/abilities/world/locations/timeline/styles)
 - **What-if branches** — explore alternate storylines, preview impact, merge only through author decisions
@@ -42,6 +42,40 @@ Most AI writing apps either make the model a ghostwriter you can't audit, or a c
 
 ![AI chapter outline](docs/screenshots/outline-ai.png)
 ![Timeline](docs/screenshots/timeline.png)
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph M1["Hướng 1 — tác giả viết trước"]
+        W[Viết vài dòng] --> X[AI mở rộng / thảo luận] --> E[Tác giả sửa tiếp]
+        E --> W
+    end
+    subgraph M2["Hướng 2 — máy viết theo sóng"]
+        G[Đặt target + dàn vai] --> P[Pipeline viết chương] --> A[Rà continuity & vá]
+        A --> P
+    end
+```
+
+```mermaid
+flowchart TD
+    A["Tác giả: mục tiêu + brief + dàn vai"] --> O[arc_chapters<br/>dàn chương theo hồi]
+    O --> CO[chapter_outline<br/>dàn cảnh]
+    CO --> SE[scene_expand<br/>viết prose]
+    SE --> CF[chapter_facts<br/>trích facts]
+    CF --> SM[summarization<br/>tóm tắt nhiều tầng]
+    SM --> NX{đủ target?}
+    NX -->|chưa| O
+    NX -->|đủ| DONE[hard-stop]
+    DB[("Story DB<br/>canon · state · knowledge · threads · summaries")]
+    DB -.->|"constraint manifest<br/>+ context đã rank"| SE
+    SE --> CK["12+ deterministic checkers<br/>leak · drift · conflict · regression"]
+    SE --> DC["AI deep-check<br/>(audit jobs nền)"]
+    CK -->|issues| R["Tác giả: rà · sửa · duyệt · giữ-giá-trị"]
+    DC -->|findings| R
+    CF -->|"facts = draft chờ duyệt"| R
+    R -->|"apply vào DB"| DB
+```
 
 ## Desktop app (packaging)
 
@@ -102,6 +136,8 @@ cd backend
 python seed_demo.py   # ~15-chapter demo project via REST API
 ```
 
+Or inspect the three fully machine-written demo novels in [`demo/`](demo/README.md) — JSON dumps (importable, with all `ai_turns` provenance) + readable Markdown manuscripts.
+
 `docker-compose.yml` is included for a Postgres + Redis setup; plain SQLite works out of the box for a single local author.
 
 ## AI providers
@@ -109,6 +145,8 @@ python seed_demo.py   # ~15-chapter demo project via REST API
 AI features are BYOK — add a provider key in **Cài đặt → Kết nối API**. Keys are Fernet-encrypted at rest; the API only ever returns a masked hint (`••••xxxx`). In dev/test, tasks without a configured key fall back to a deterministic `FakeProvider` so the whole UI stays testable; production builds refuse to invent prose and show a clear configuration error instead.
 
 Each credential carries a **capability tier** (`Yếu`/`Thường`/`Mạnh`) — auto-inferred from the provider, overridable per key. The tier tells the app how aggressively to split large prompts (e.g. a ~60s-capped gateway gets small deep-check windows; a strong API reads a whole chapter at once). It describes request capacity, not prose quality.
+
+**Cheap models are a feature, not a compromise.** The design offloads what models are bad at — remembering canon, tracking who-knows-what, keeping continuity — onto the story database and deterministic checkers. So a low-cost flash-tier model only has to do what it's good at (prose), and the pipeline catches its slips. Upgrade to a large model for faster, better first drafts with zero config changes — same pipeline, same checks.
 
 ## Testing
 

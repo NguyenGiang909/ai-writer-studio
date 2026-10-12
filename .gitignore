@@ -47,3 +47,6 @@ package/tauri/gen/
 
 # agent local session config
 .cursor/
+
+# demo video recordings (heavy — giữ local)
+demo/video/
