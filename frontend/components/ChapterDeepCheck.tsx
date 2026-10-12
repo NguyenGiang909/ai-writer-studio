@@ -12,6 +12,7 @@ type Finding = {
   chapter_title?: string | null; status?: string;
   chapter_order?: number | null; created_at: string;
   issues: { code: string; severity: string; message: string; suggestion?: string;
+            gate?: string | null; evidence?: string | null; counter?: string | null;
             scene_id?: string | null; chapter_id?: string | null; chapter_order?: number | null }[];
 };
 
@@ -135,7 +136,19 @@ export default function ChapterDeepCheck({
           setErr(j.error || t(lang, "Job thất bại"));
         } else {
           const r = j.result ?? {};
-          if (r.warnings?.length) setWarns(r.warnings);
+          const w: string[] = [...(r.warnings ?? [])];
+          // coverage honesty — job khai báo nó thực sự đọc bao nhiêu
+          if (r.coverage) {
+            const cov = r.coverage === "FULL_TEXT"
+              ? t(lang, "Phạm vi: đọc toàn văn")
+              : r.coverage === "PARTIAL"
+              ? t(lang, "Phạm vi: MỘT PHẦN — {n}", { n: r.coverage_note ?? "" })
+              : t(lang, "Phạm vi: index đủ + mẫu văn — {n}", { n: r.coverage_note ?? "" });
+            w.push(cov);
+          }
+          if (r.uncovered_chapters?.length)
+            w.push(t(lang, "Chưa phủ chương: {n}", { n: r.uncovered_chapters.join(", ") }));
+          setWarns(w);
           await reload();
         }
       } catch { /* poll lỗi lẻ — vòng sau thử lại */ }
@@ -323,7 +336,10 @@ export default function ChapterDeepCheck({
               return (
                 <div key={k} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
                   <span className={`pill${sev.warn ? " warn" : ""}`}>{sev.label}</span>{" "}
+                  {i.gate && <span className="pill" title={t(lang, "Gate QC")}>{i.gate}</span>}{" "}
                   <span>{i.message}</span>
+                  {i.evidence && <p className="subtle" style={{ marginTop: 2, fontStyle: "italic" }}>“{i.evidence}”</p>}
+                  {i.counter && <p className="subtle" style={{ marginTop: 2 }}>↳ {t(lang, "Có thể cố ý")}: {i.counter}</p>}
                   {i.suggestion && <p className="subtle" style={{ marginTop: 2 }}>→ {i.suggestion}</p>}
                   {i.chapter_order != null && (
                     <Link href={`/projects/${projectId}/read?chapter=${i.chapter_order}`}

@@ -15,6 +15,22 @@ class DiscussionMessage(Base):
     thread_id:Mapped[str]=mapped_column(ForeignKey("discussion_threads.id",ondelete="CASCADE"),index=True); author:Mapped[str]=mapped_column(String(16)); content:Mapped[str]=mapped_column(Text); pinned:Mapped[bool]=mapped_column(Boolean,default=False)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,nullable=True)
 class StylePreference(Base):
+    """Style rule — một gu văn của tác giả (port Novel Humanizer STYLE_MEMORY).
+
+    preference_type: prefer|avoid (polarity). strength: HARD|PREFERRED|AVOID|OPEN.
+    status: candidate (AI suy ra, chưa có hiệu lực) | confirmed (luật đang áp) |
+    rejected | superseded — chỉ confirmed được inject vào prompt.
+    source: explicit | approved_edit | observed_edit | inferred | preset.
+    scope_* = override phạm vi (None → thừa kế scope của profile chứa)."""
     __tablename__="style_preferences"
     id:Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); project_id:Mapped[str]=mapped_column(ForeignKey("projects.id",ondelete="CASCADE"),index=True)
     style_profile_id:Mapped[str]=mapped_column(ForeignKey("style_profiles.id",ondelete="CASCADE"),index=True); preference_type:Mapped[str]=mapped_column(String(16)); pattern:Mapped[str]=mapped_column(Text); explicit_author_feedback:Mapped[bool]=mapped_column(Boolean,default=True)
+    strength:Mapped[str]=mapped_column(String(16),default="PREFERRED")
+    status:Mapped[str]=mapped_column(String(16),default="confirmed")
+    source:Mapped[str]=mapped_column(String(24),default="explicit")
+    attribute:Mapped[str|None]=mapped_column(String(80))
+    scope_type:Mapped[str|None]=mapped_column(String(32))
+    scope_id:Mapped[str|None]=mapped_column(String(36))
+    evidence:Mapped[str|None]=mapped_column(Text)
+    supersedes_id:Mapped[str|None]=mapped_column(String(36))
+    updated_at:Mapped[str|None]=mapped_column(String(40))

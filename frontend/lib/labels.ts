@@ -231,10 +231,22 @@ export const scopeLabel = (raw?: string | null, lang?: Lang): string =>
 export function severityLabel(raw?: string | null, lang?: Lang): { label: string; warn: boolean } {
   const s = String(raw ?? "").toLowerCase();
   const en = L(lang) === "en";
-  if (["error", "high", "danger", "critical"].includes(s)) return { label: en ? "High" : "Cao", warn: true };
-  if (["warning", "warn", "medium"].includes(s)) return { label: en ? "Medium" : "Vừa", warn: false };
+  if (["blocker", "error", "high", "danger", "critical"].includes(s)) return { label: en ? "Blocker" : "Chặn duyệt", warn: true };
+  if (["major"].includes(s)) return { label: en ? "Major" : "Lớn", warn: true };
+  if (["minor", "warning", "warn", "medium"].includes(s)) return { label: en ? "Minor" : "Nhỏ", warn: false };
+  if (["intentional", "intentional_or_unknown"].includes(s)) return { label: en ? "Intentional?" : "Cố ý?", warn: false };
   return { label: en ? "Low" : "Thấp", warn: false };
 }
+
+export const styleStatusLabel = (raw?: string | null, lang?: Lang): string =>
+  L(lang) === "en"
+    ? ({ candidate: "Candidate", confirmed: "Confirmed", rejected: "Rejected", superseded: "Superseded" })[String(raw ?? "")] ?? cap(String(raw ?? ""))
+    : ({ candidate: "Chờ duyệt", confirmed: "Đang áp dụng", rejected: "Đã từ chối", superseded: "Đã thay thế" })[String(raw ?? "")] ?? cap(String(raw ?? ""));
+
+export const strengthLabel = (raw?: string | null, lang?: Lang): string =>
+  L(lang) === "en"
+    ? ({ HARD: "HARD", PREFERRED: "Preferred", AVOID: "Avoid", OPEN: "Open" })[String(raw ?? "")] ?? cap(String(raw ?? ""))
+    : ({ HARD: "BẮT BUỘC", PREFERRED: "Ưu tiên", AVOID: "Nên tránh", OPEN: "Tự do" })[String(raw ?? "")] ?? cap(String(raw ?? ""));
 
 export const beatTypeLabel = (raw?: string | null, lang?: Lang): string =>
   L(lang) === "en"

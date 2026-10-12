@@ -18,7 +18,25 @@ from app.services.constraints import build_constraints, render_constraints, cano
 from app.services.memory import ancestor_chain
 from app.services.state import states_at
 
-MEMORY_TASKS = {"writing", "expand", "scene_expand", "revision", "skeleton"}
+MEMORY_TASKS = {"writing", "expand", "scene_expand", "revision", "skeleton",
+                "humanize"}
+
+# tasks được phép nhận block "Gu văn tác giả" (style rules confirmed)
+_STYLE_TASKS = {"writing", "expand", "scene_expand", "chapter_write", "revision",
+                "humanize", "skeleton", "chapter_outline"}
+
+
+async def _style_section(db: AsyncSession, pid: str, scene_id: str | None):
+    """Gu văn confirmed — inject vào task viết/sửa (trước giờ style_profiles
+    chỉ tới model khi tác giả ghim tay qua cast, rule chung không bao giờ
+    được thấy)."""
+    from app.services.style import render_style_block
+    sc = None
+    if scene_id:
+        sc = await db.get(Scene, scene_id)
+        if not sc or sc.project_id != pid:
+            sc = None
+    return await render_style_block(db, pid, sc)
 
 HUMANIZE_RULES = (
     "TRÁNH LỐI VĂN AI — dấu hiệu khiến đoạn văn nghe như máy viết:\n"
@@ -241,6 +259,51 @@ CHARACTER_PROFILE_SYSTEM = (
     '"status" (active/dead/exited — không rõ thì "active"), '
     '"aliases" (mảng tên gọi khác xuất hiện trong văn, tối đa 6). '
     "Chỉ dùng dữ kiện có trong dữ liệu — không suy diễn, không bịa chi tiết."
+)
+
+HUMANIZE_SYSTEM = (
+    "Bạn là trợ lý biên tập làm mượt văn xuôi tiểu thuyết. Tác giả gửi một đoạn "
+    "văn — nhiệm vụ duy nhất: trả về TOÀN BỘ đoạn ĐÃ BIÊN TẬP cho tự nhiên hơn. "
+    "Tuyệt đối giữ nguyên: sự kiện, nhân vật, địa danh, con số, POV, dữ kiện và "
+    "thứ tự diễn biến — chỉ sửa cách diễn đạt. Mục tiêu: chữa nguyên nhân gây "
+    "gượng máy (lặp nhịp máy móc, đối lập thừa, câu tóm ý nghĩa sau cảnh, phản "
+    "ứng vật lý chung chung thay cho diễn biến cá nhân, thoại tất cả nhân vật "
+    "một giọng) mà KHÔNG làm phẳng nét văn có chủ đích của truyện. Nếu có mục "
+    "\"Gu văn tác giả\" thì đó là chuẩn — không sửa văn theo hướng trái gu. "
+    "Không giải thích, không liệt kê thay đổi — chỉ xuất văn đã sửa.\n\n"
+    + HUMANIZE_RULES
+)
+
+STYLE_LEARN_SYSTEM = (
+    "Bạn là bộ phân tích phong cách của tác giả tiểu thuyết. Được cho một đoạn "
+    "văn GỐC và bản TÁC GIẢ ĐÃ SỬA (kèm lời giải thích nếu có), hãy rút ra các "
+    "QUY TẮC PHONG CÁCH mà sự thay đổi thể hiện — phân biệt SỞ THÍCH HÌNH THỨC "
+    "với sửa nội dung/cốt truyện (chỉ trích cái đầu). Trả về DUY NHẤT JSON array "
+    "(không markdown, không giải thích) — mỗi phần tử:\n"
+    '{"attribute":"nhóm ngắn gọn — vd narration.paragraph_rhythm, dialogue.voice, '
+    'description.density, pacing, scene_ending, figurative_language",'
+    '"pattern":"quy tắc cụ thể suy ra từ diff — mô tả ĐIỀU TÁC GIẢ MUỐN",'
+    '"preference_type":"prefer"|"avoid",'
+    '"strength":"HARD"|"PREFERRED"|"AVOID"|"OPEN",'
+    '"evidence":"trích ngắn trước→sau làm chứng cứ (≤200 ký tự)"}\n'
+    "Quy tắc: chỉ rút điều diff thực sự cho thấy; KHÔNG suy rộng một ví dụ "
+    "thành luật toàn truyện (không có strength HARD trừ khi tác giả nói rõ); "
+    "sửa lỗi chính tả/nội dung KHÔNG phải quy tắc phong cách — bỏ qua. "
+    "Không có quy tắc nào thì trả []."
+)
+
+PRESET_IMPORT_SYSTEM = (
+    "Bạn là bộ trích preset dự án tiểu thuyết. Được cho một văn bản preset/"
+    "style-guide của một truyện cụ thể, hãy trích ra cấu trúc để import vào "
+    "hệ thống. Trả về DUY NHẤT JSON object (không markdown, không lời dẫn):\n"
+    '{"profiles":[{"name":str,"instructions":str}],'
+    '"rules":[{"attribute":str,"pattern":str,"preference_type":"prefer"|"avoid",'
+    '"strength":"HARD"|"PREFERRED"|"AVOID"|"OPEN","evidence":str}],'
+    '"canon_facts":[{"predicate":str,"value_text":str}]}\n'
+    "rules = quy tắc VĂN PHONG/TRÌNH BÀY (cách kể, đoạn văn, thoại, nhịp) — "
+    "KHÔNG đưa lore/cốt truyện vào. canon_facts = dữ kiện TRUYỆN đã khóa "
+    "(nhân vật, hệ thống, kinh tế, lore) — predicate ngắn, value_text gọn. "
+    "Mỗi rule/can_lớn 1 dòng ý. Chỉ trích điều preset nói rõ — không suy diễn."
 )
 
 
@@ -591,6 +654,11 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
             if block:
                 ctx += "\n\n" + block
                 manifest.append(f"included open threads: {n}")
+    if task in _STYLE_TASKS:
+        sblk, sn = await _style_section(db, pid, scene_id)
+        if sblk:
+            ctx = f"{ctx}\n\n---\n\n{sblk}" if ctx else sblk
+            manifest.append(f"included style-rules: {sn}")
     if task in {"writing", "expand", "scene_expand", "chapter_write"}:
         constraints = ""
         if scene_id:
@@ -628,6 +696,23 @@ async def build_story_prompt(db: AsyncSession, pid: str, task: str,
         if constraints:
             manifest.append("included constraints: ràng buộc từ StoryState/Knowledge/Thread")
         return REVISION_SYSTEM, body, manifest
+    if task == "humanize":
+        constraints = ""
+        if scene_id:
+            sc = await db.get(Scene, scene_id)
+            if sc and sc.project_id == pid:
+                constraints = render_constraints(await build_constraints(db, pid, sc))
+        if constraints:
+            lines = constraints.splitlines()
+            if len(lines) > 20:
+                constraints = "\n".join(lines[:20]) + f"\n…(+{len(lines)-20} ràng buộc nữa)"
+                manifest.append(f"constraints capped at 20/{len(lines)} lines")
+            else:
+                manifest.append(f"constraints: {len(lines)} lines")
+            manifest.append("included constraints: ràng buộc từ StoryState/Knowledge/Thread")
+        base = f"{constraints}\n\n{ctx}" if constraints and ctx else (constraints or ctx)
+        body = (f"{base}\n\n=== VĂN CẦN LÀM MƯỢT ===\n{user_prompt}" if base else user_prompt)
+        return HUMANIZE_SYSTEM, body, manifest
     if task == "extraction":
         body = (f"{ctx}\n\n=== VĂN CẦN TRÍCH ===\n{user_prompt}"
                 if ctx else user_prompt)

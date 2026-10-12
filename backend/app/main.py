@@ -19,6 +19,7 @@ from app.api.routes.signals import router as signals_router
 from app.api.routes.export import router as export_router
 from app.api.routes.search import router as search_router
 from app.api.routes.authoring import router as authoring_router
+from app.api.routes.style import router as style_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +58,7 @@ app.include_router(signals_router, prefix="/api/v1")
 app.include_router(export_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(authoring_router, prefix="/api/v1")
+app.include_router(style_router, prefix="/api/v1")
 
 
 async def ensure_schema():

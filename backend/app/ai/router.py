@@ -33,6 +33,9 @@ _PROVIDER_SEM = asyncio.Semaphore(2)
 # tránh rơi xuống FakeProvider trên run thật
 TASK_PREF_FALLBACK = {
     "chapter_write": "scene_expand",
+    "humanize": "revision",
+    "style_learn": "extraction",
+    "preset_import": "extraction",
 }
 
 

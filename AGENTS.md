@@ -94,6 +94,18 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - **D1 Tauri** (`package/tauri/`): shell Rust spawn sidecar (port-probe tái dùng, không trùng), splash→navigate :3300, tray Mở/Thoát (X=ẩn tray), Exit→kill con. Build `npx tauri build` → NSIS ~65MB currentUser + MSI. Node sidecar cần env PORT=3300 HOSTNAME=127.0.0.1. `.gitignore` mở `package/` cho source, vẫn ignore binary/target/gen
 - `.ps1` phải **ASCII-only hoặc UTF-8 BOM** — PS5.1 đọc no-BOM là ANSI, em-dash `—`/dấu tiếng Việt vỡ parse
 
+## Style memory — Novel Humanizer v3 (migration 0030)
+
+- `style_preferences` mở rộng thành style-rule đầy đủ: `strength` (HARD/PREFERRED/AVOID/OPEN), `status` (candidate→confirmed→rejected/superseded), `source` (explicit/approved_edit/observed_edit/inferred/preset), `attribute`, `scope_type`+`scope_id`, `evidence`, `supersedes_id`
+- `services/style.py`: scope resolution (scene/chapter/character/arc/global — rule override thắng scope profile), `render_style_block` chỉ trả rule **confirmed** khớp scope; profile chứa "AI tự học" tạo lười
+- `compose.py::_style_section` inject block "Gu văn tác giả" vào `_STYLE_TASKS` (writing/expand/revision/humanize/skeleton/chapter_outline…) — manifest `included style-rules: N`
+- Routes `api/routes/style.py`: `GET/POST/PATCH/DELETE /projects/{pid}/style-rules`, `POST …/learn` (`{instruction}`→confirmed | `{original,revised,comment?}`→task `style_learn` trích CANDIDATES), `GET …/style/presets`, `POST …/style/import-preset` (AI trích đề xuất, KHÔNG ghi) + `POST …/style/apply-preset` (ghi phần tác giả chọn — idempotent theo name/pattern/predicate+value)
+- Task mới: `humanize` (làm mượt không đổi sự kiện — chip "✎ Làm tự nhiên" trong AiPanel gọi thẳng), `style_learn`, `preset_import`; router fallback: humanize→revision, style_learn/preset_import→extraction
+- Deep-check 5-gate (A hard/B story/C style/D prose/E regression) + severity blocker/major/minor/intentional + evidence/counter/suggestion + `coverage` (FULL_TEXT/HYBRID_100_PERCENT_INDEX/PARTIAL + coverage_note) — ChapterDeepCheck render gate pill + coverage line
+- Preset `backend/presets/quan-net-di-gioi.md` — chỉ áp khi tác giả chọn, pid-scoped không rò project khác
+- Anti-overfitting: candidates chờ duyệt (manifest bỏ qua), rejected không gợi lại, provenance giữ qua superseded
+- Frontend: `StyleRulesPanel` trên trang Phong cách (list 3 nhóm + Dạy gu + Học từ diff + Import preset modal chọn phần áp); `severityLabel/strengthLabel/scopeLabel/styleStatusLabel` trong labels.ts
+
 ## Backlog / hướng tiếp theo
 
 - C+A roadmap memory: C đã xong (session turns + summaries + ranking); A = OpenAI Responses thread / Gemini chats khi cần provider giữ history thật

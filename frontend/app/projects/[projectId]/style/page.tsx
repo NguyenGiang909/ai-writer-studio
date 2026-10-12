@@ -1,5 +1,6 @@
 import { getJSON } from "../../../../lib/api";
 import PostForm from "../../../../components/PostForm";
+import StyleRulesPanel from "../../../../components/StyleRulesPanel";
 import { scopeLabel } from "../../../../lib/labels";
 import { getLang } from "../../../../lib/lang-server";
 import { t } from "../../../../lib/i18n";
@@ -48,6 +49,7 @@ export default async function StylePage({ params }: { params: Promise<{ projectI
       <div className="dash-head" style={{ marginTop: 26 }}>
         <div><div className="eyebrow">{t(lang, "Văn mẫu & ưu tiên")}</div><h1>{t(lang, "Văn mẫu · Ưu tiên")}</h1></div>
       </div>
+      <StyleRulesPanel projectId={projectId} />
       <div className="grid">
         <div className="card">
           <h3>{t(lang, "Văn mẫu ({n})", { n: samples.length })}</h3>

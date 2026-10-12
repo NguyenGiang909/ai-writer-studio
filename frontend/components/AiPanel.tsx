@@ -230,6 +230,38 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
     }
   }
 
+  async function humanize() {
+    if (!sceneId) { setError(t(lang, "Chọn một cảnh đã có văn trước")); return; }
+    setBusy(true); setPhase("saving"); setError(""); setDraft(""); setSent(false); setReviseMode(true); setIssues([]);
+    const ac = new AbortController(); abortRef.current = ac;
+    setReviseSel(sel);
+    try {
+      const scene = await getJSON(`/api/v1/projects/${projectId}/scenes/${sceneId}`);
+      if (!scene?.prose?.trim()) { setError(t(lang, "Cảnh chưa có văn — dùng 'Tạo bản mở rộng' thay vì sửa")); return; }
+      setOriginalProse(scene.prose);
+      setPhase("model");
+      const prompt = sel
+        ? `ĐOẠN VĂN CẦN LÀM MƯỢT (là một phần trong cảnh — chỉ trả về ĐOẠN NÀY đã sửa, văn xuôi thuần, TUYỆT ĐỐI không kèm lại văn trước/sau):\n${sel.text}`
+        : `ĐOẠN VĂN GỐC:\n${scene.prose}`;
+      const r: any = await postJSON(`/api/v1/projects/${projectId}/ai/complete`, {
+        task: "humanize",
+        scene_id: sceneId,
+        prompt,
+      }, ac.signal);
+      const resultText=typeof r === "string" ? r : r.text ?? r.reply ?? JSON.stringify(r);
+      rememberResult(resultText,true,scene.prose);
+      setDraft(resultText);
+      if (Array.isArray(r.context)) setManifest(r.context);
+      if (Array.isArray(r.issues)) setIssues(r.issues);
+      toast(t(lang, "Đã làm mượt văn — xem và thay thế nếu ưng"));
+    } catch (e: any) {
+      if (e?.name === "AbortError") toast(t(lang, "Đã hủy gọi AI"));
+      else setError(e?.message ?? t(lang, "Lỗi gọi AI"));
+    } finally {
+      setBusy(false); setPhase("idle"); abortRef.current = null;
+    }
+  }
+
   async function replaceProse() {
     if (!sceneId || !draft) return;
     if (reviseSel) {
@@ -397,8 +429,8 @@ export default function AiPanel({ projectId, sceneId }: { projectId: string; sce
               placeholder={t(lang, "Ví dụ: siết nhịp nhanh hơn, bớt tả cảnh, giữ POV Minh…")} />
           </div>
           <div className="seg" style={{ marginBottom: 8 }}>
-            <button type="button" className="chip"
-              onClick={() => setReviseNotes(t(lang, "Làm tự nhiên: gỡ lối văn AI (đối lập thừa, câu kết sở thị, cụm ba máy móc, từ hoa mỹ rỗng) — giữ nguyên nội dung, POV và giọng kể"))}>
+            <button type="button" className="chip" onClick={humanize} disabled={busy || !sceneId}
+              title={t(lang, "Task humanize riêng — gỡ lối văn AI theo gu đã học, giữ nguyên sự kiện/POV")}>
               {t(lang, "✎ Làm tự nhiên (gỡ văn AI)")}
             </button>
           </div>

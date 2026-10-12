@@ -65,7 +65,7 @@ async def complete(pid:str,p:CompleteRequest,db:AsyncSession=Depends(get_db)):
                   latency_ms=int((time.monotonic()-t0)*1000)))
     await db.commit()
     issues=[]
-    if p.task in {"writing","expand","scene_expand","revision"} and p.scene_id and result.text:
+    if p.task in {"writing","expand","scene_expand","revision","humanize"} and p.scene_id and result.text:
         sc=await db.get(Scene,p.scene_id)
         if sc:
             st_t=sc.story_time if sc.story_time is not None else sc.narrative_order
@@ -594,17 +594,46 @@ async def continuity_check(pid:str,db:AsyncSession=Depends(get_db)):
 
 # ---- AI deep-check: soi 1 chương bằng model (lỗi nghĩa deterministic không bắt được) ----
 _DEEP_SYSTEM=(
-    "Bạn là biên tập viên kiểm tra tính liên tục của truyện dài. Đọc chương được cung cấp "
-    "(xương cảnh + văn) và chỉ ra CÁC LỖI NỘI DUNG:\n"
-    "- sự kiện bị viết 2 lần với chi tiết mâu thuẫn giữa các cảnh trong chương\n"
-    "- chi tiết nhân vật/sự vật tự phủ nhận (con số, tuổi, đồ vật, hành động)\n"
-    "- văn lệch xương cảnh đã dàn hoặc lệch trạng thái đã chốt (bối cảnh, thời điểm, ai ở đâu)\n"
-    "- nhân vật/địa danh xuất hiện sai pha truyện\n"
-    "Mỗi lỗi một mục. KHÔNG bình luận văn phong, không chế lỗi khi văn ổn. "
+    "Bạn là biên tập viên kiểm tra chương truyện dài theo 5 GATE (port Novel "
+    "Humanizer CHAPTER_CLOSE_QC). Đọc chương được cung cấp (xương cảnh + văn) "
+    "và chỉ ra vấn đề, phân loại theo gate:\n"
+    "GATE A — HARD CONSTRAINTS: mâu thuẫn canon/trạng thái đã chốt, sai POV, "
+    "ai đó xuất hiện khi không thể, văn lệch xương cảnh đã dàn.\n"
+    "GATE B — STORY & CHARACTER: gãy nhân quả, động cơ mỏng, thoại mọi nhân "
+    "vật một giọng, phân phối thông tin sai lúc, cảnh không đạt mục tiêu.\n"
+    "GATE C — STYLE FIDELITY: lệch giọng/trạng thái trình bày đã chốt của "
+    "truyện (vd truyện gãy sắc mà văn 'mượt' yểu điệu, hoặc ngược lại).\n"
+    "GATE D — PROSE: lặp nhịp máy, đối lập thừa, kết đoạn bằng câu tóm ý "
+    "nghĩa, phản ứng vật lý chung chung thay diễn biến cá nhân.\n"
+    "GATE E — REGRESSION: chi tiết/chương tự phủ nhận với dữ kiện đã viết "
+    "trước đó (con số, tuổi, đồ vật, ai đã biết gì).\n"
+    "Severity: blocker (mâu thuẫn chắc chắn canon/logic — ngăn duyệt), "
+    "major (lỗ hổng nhân quả/động cơ), minor (chi tiết nhỏ xao nhãng), "
+    "intentional (khác thường nhưng có thể là chủ ý — ghi theo dõi, KHÔNG "
+    "coi là lỗi cứng). Phân biệt mâu thuẫn thật với: nhân vật nói dối/nhớ "
+    "nhầm, thông tin cố tình giấu, thay đổi hợp lý theo thời gian.\n"
+    "Mỗi vấn đề phải có evidence (trích ngắn chứng cứ) — không viện dẫn "
+    "đoạn chưa thấy; đề xuất sửa TỐI THIỂU. KHÔNG chế lỗi khi văn ổn.\n"
     "Trả về JSON THUẦN (không markdown, không giải thích ngoài): "
-    '[{"scene":"tên cảnh hoặc null","severity":"error|warning","message":"mô tả lỗi gọn",'
-    '"suggestion":"gợi ý sửa ngắn"}]. Không có lỗi thì trả [].'
+    '[{"scene":"tên cảnh hoặc null","gate":"A|B|C|D|E",'
+    '"severity":"blocker|major|minor|intentional",'
+    '"message":"mô tả lỗi gọn","evidence":"trích ngắn chứng cứ",'
+    '"counter":"giả thuyết ngoại lệ có thể (vd nhân vật nói dối) hoặc null",'
+    '"suggestion":"gợi ý sửa tối thiểu"}]. Không có vấn đề thì trả [].'
 )
+
+_SEV_MAP={"error":"major","warning":"minor","info":"intentional",
+          "high":"blocker","medium":"minor","low":"intentional"}
+_VALID_SEV={"blocker","major","minor","intentional"}
+
+def _norm_severity(v):
+    s=str(v or "").lower()
+    if s in _VALID_SEV: return s
+    return _SEV_MAP.get(s,"minor")
+
+def _norm_gate(v):
+    g=str(v or "").upper()[:1]
+    return g if g in "ABCDE" else None
 
 _BG_TASKS: set = set()
 
@@ -883,12 +912,16 @@ async def _deep_check_chapter_work(db:AsyncSession,pid:str,chid:str,
             if key in seen_msg:
                 continue
             seen_msg.add(key)
-            found.append({
+            it_out = {
                 "code": str(it.get("code") or "AI_REVIEW")[:40],
-                "severity": it.get("severity") if it.get("severity") in ("error", "warning", "info") else "warning",
+                "severity": _norm_severity(it.get("severity")),
                 "message": str(it["message"])[:400],
                 "suggestion": str(it.get("suggestion") or "")[:300],
-                "scene_id": title2id.get(it.get("scene"))})
+                "scene_id": title2id.get(it.get("scene"))}
+            if _norm_gate(it.get("gate")): it_out["gate"]=_norm_gate(it.get("gate"))
+            if it.get("evidence"): it_out["evidence"]=str(it["evidence"])[:500]
+            if it.get("counter"): it_out["counter"]=str(it["counter"])[:400]
+            found.append(it_out)
 
     # lọc motif tác giả đã đánh 'không phải lỗi' (dismissed) — không tái xuất
     dismissed = await _dismissed_issue_keys(db, pid)
@@ -905,15 +938,24 @@ async def _deep_check_chapter_work(db:AsyncSession,pid:str,chid:str,
     await db.commit()
     out = {"finding_id": f.id, "issues": found, "count": len(found),
            "provider": provider or _prov, "model": model, "calls": len(prompts),
-           "tier": _tier}
+           "tier": _tier,
+           # coverage honesty (Novel Humanizer): chương QC soi TOÀN VĂN
+           # prose của chính nó → FULL_TEXT (chỉ bị giới hạn window theo tier)
+           "coverage": "FULL_TEXT",
+           "coverage_note": f"toàn văn {len(scs)} cảnh qua {len(prompts)} window"}
     if skipped:
         out["skipped_windows"] = skipped
+        out["coverage"] = "PARTIAL"
+        out["coverage_note"] += f"; {skipped} window lỗi provider"
     return out
 
 _DEEP_RANGE_SYSTEM=(
     "Bạn là biên tập viên tổng của truyện dài. Soi MỘT KHOẢNG CHƯƠNG qua "
-    "tóm tắt, xương cảnh và mẫu văn được cung cấp. Chỉ báo LỖI CẤP KHOẢNG "
-    "(xuyên từ 2 chương trở lên) — KHÔNG lặp lại lỗi đã ghi trong mục "
+    "tóm tắt, xương cảnh và mẫu văn được cung cấp — kiểm 2 chiều (Novel "
+    "Humanizer CUMULATIVE_AUDIT): FORWARD theo dõi timeline/vị trí/vật phẩm/"
+    "tri thức/luật thế giới/nhân quả qua từng chương; BACKWARD hỏi chi tiết "
+    "mới có làm chương trước bất khả thi/vô nghĩa không. Chỉ báo LỖI CẤP "
+    "KHOẢNG (xuyên từ 2 chương trở lên) — KHÔNG lặp lại lỗi đã ghi trong mục "
     "'findings đã biết', không bình luận văn phong từng câu:\n"
     "- THREAD_DRIFT: hố/tuyến mở trước hoặc trong khoảng mà không chương nào nhích\n"
     "- CHARACTER_FADE: nhân vật quan trọng vắng mặt bất thường qua nhiều chương\n"
@@ -924,9 +966,14 @@ _DEEP_RANGE_SYSTEM=(
     "Nếu khoảng chưa có văn (chỉ xương cảnh): báo OUTLINE_GAP (lỗ hổng dàn ý), "
     "BEAT_DUP (beat trùng), INTRO_MISSING (nhân vật/địa danh dùng chưa giới thiệu), "
     "PAYOFF_SETUP (hứa không có chuẩn bị).\n"
+    "Phân biệt mâu thuẫn thật với nhân vật nói dối/nhớ nhầm, thông tin cố "
+    "tình giấu, thay đổi hợp lý theo thời gian — đó là INTENTIONAL, không "
+    "phải lỗi. Evidence bắt buộc: trích ngắn chứng cứ hai phía.\n"
     "Trả JSON THUẦN (không markdown): [{\"chapter\": số chương hoặc null,"
-    "\"severity\":\"error|warning\",\"code\":\"MÃ\",\"message\":\"gọn\","
-    "\"suggestion\":\"ngắn\"}]. Không có lỗi thì trả []."
+    "\"severity\":\"blocker|major|minor|intentional\",\"gate\":\"A|B|C|D|E|\","
+    "\"code\":\"MÃ\",\"message\":\"gọn\",\"evidence\":\"trích ngắn 2 phía\","
+    "\"counter\":\"giả thuyết ngoại lệ hoặc null\",\"suggestion\":\"ngắn\"}]. "
+    "Không có lỗi thì trả []."
 )
 
 @router.post("/projects/{pid}/deep-check")
@@ -1080,11 +1127,15 @@ async def _deep_check_range_work(db:AsyncSession,pid:str,fo:int,to:int,
             cord=it.get("chapter")
             try: cord=int(cord) if cord is not None else None
             except (TypeError,ValueError): cord=None
-            found.append({"code":str(it.get("code") or "AI_REVIEW")[:40],
-                "severity":it.get("severity") if it.get("severity") in("error","warning","info") else "warning",
+            it_out={"code":str(it.get("code") or "AI_REVIEW")[:40],
+                "severity":_norm_severity(it.get("severity")),
                 "message":str(it["message"])[:400],
                 "suggestion":str(it.get("suggestion") or "")[:300],
-                "chapter_id":ord2id.get(cord),"chapter_order":cord})
+                "chapter_id":ord2id.get(cord),"chapter_order":cord}
+            if _norm_gate(it.get("gate")): it_out["gate"]=_norm_gate(it.get("gate"))
+            if it.get("evidence"): it_out["evidence"]=str(it["evidence"])[:500]
+            if it.get("counter"): it_out["counter"]=str(it["counter"])[:400]
+            found.append(it_out)
 
     # lọc motif tác giả đã đánh 'không phải lỗi' (dismissed)
     dismissed=await _dismissed_issue_keys(db,pid)
@@ -1099,9 +1150,17 @@ async def _deep_check_range_work(db:AsyncSession,pid:str,fo:int,to:int,
                   provider=provider,model=model,
                   latency_ms=int((time.monotonic()-t0)*1000)))
     await db.commit()
+    # coverage honesty (Novel Humanizer): khoảng QC rà qua summary+skeleton+
+    # mẫu văn+nguyên văn biên — không đọc lại toàn văn → HYBRID; chương nào
+    # trắng cả 3 nguồn thì chưa thực sự phủ → PARTIAL liệt kê rõ
+    uncovered=[c.order_index for c in in_range
+               if c.id not in sums and not scs_by_ch.get(c.id)]
     out={"finding_id":f.id,"issues":found,"count":len(found),"mode":mode,
          "from_order":fo,"to_order":to,"provider":provider,"model":model,
-         "calls":len(prompts),"tier":tier,"warnings":warnings}
+         "calls":len(prompts),"tier":tier,"warnings":warnings,
+         "coverage":"PARTIAL" if uncovered or skipped else "HYBRID_100_PERCENT_INDEX",
+         "coverage_note":f"{len(in_range)-len(uncovered)}/{len(in_range)} chương qua index+mẫu văn"}
+    if uncovered: out["uncovered_chapters"]=uncovered
     if skipped: out["skipped_windows"]=skipped
     return out
 
