@@ -20,20 +20,27 @@ Mỗi dự án 2 file:
 
 **Không chứa** credential/API key (secrets là bảng bí-mật-trong-truyện).
 
-## Video mô phỏng (quay tự động)
+## Video mô phỏng — máy tự viết trước mắt
 
-`demo-record*.js` — Playwright headless tự lái app (backend :8001 +
-frontend :3000), `recordVideo` ra `.webm`:
+Quay tự động bằng Playwright (`recordVideo`) trên app thật — không dựng lại:
 
-- `demo-record.js` — tour truyện 69 chương: manuscript, prose, review,
-  timeline, authoring, search
-- `demo-record-authoring.js` — project rỗng → `POST /authoring/start`
-  (premise → gate `awaiting_review`)
-- `demo-record-chapters.js` — auto-approve từng gate → **3 chương +
-  scenes do engine viết trước mắt**
+**Engine viết 3 chương live** — project rỗng → premise → các gate duyệt →
+chapters/scenes hiện ra trong manuscript tree:
 
-Video nằm ngoài repo (`demo/video/` gitignored — ~60MB). Quay lại:
-`cd demo && node demo-record.js` (cần playwright + app đang chạy).
+<video src="video/ai-writer-chapters-live.mp4" controls width="720"></video>
+
+**Tour truyện 69 chương thật** — manuscript tree, prose do máy viết,
+review/audit, timeline, search:
+
+<video src="video/ai-writer-demo.mp4" controls width="720"></video>
+
+**Start run trên project rỗng** — `POST /authoring/start`, premise →
+`awaiting_review` (cổng duyệt của tác giả):
+
+<video src="video/ai-writer-authoring-live.mp4" controls width="720"></video>
+
+Script quay lại: `demo-record*.js` trong thư mục này (cần Playwright +
+app chạy :3000/:8001). Bản webm gốc ~60MB giữ ngoài repo.
 
 ## Đọc nhanh bằng chứng "máy viết"
 

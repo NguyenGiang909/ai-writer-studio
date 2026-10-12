@@ -136,7 +136,7 @@ cd backend
 python seed_demo.py   # ~15-chapter demo project via REST API
 ```
 
-Or inspect the three fully machine-written demo novels in [`demo/`](demo/README.md) — JSON dumps (importable, with all `ai_turns` provenance) + readable Markdown manuscripts.
+Or inspect the three fully machine-written demo novels in [`demo/`](demo/README.md) — JSON dumps (importable, with all `ai_turns` provenance) + readable Markdown manuscripts + **videos of the engine writing chapters live**.
 
 `docker-compose.yml` is included for a Postgres + Redis setup; plain SQLite works out of the box for a single local author.
 

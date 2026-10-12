@@ -48,5 +48,5 @@ package/tauri/gen/
 # agent local session config
 .cursor/
 
-# demo video recordings (heavy — giữ local)
-demo/video/
+# demo video webm gốc (nặng — giữ local); mp4 nén vẫn commit
+demo/video/*.webm
