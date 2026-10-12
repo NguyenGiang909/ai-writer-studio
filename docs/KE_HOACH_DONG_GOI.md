@@ -61,10 +61,38 @@ Chạy: `powershell -ExecutionPolicy Bypass -File package\build_package.ps1`
 - [ ] Không key API → gọi AI báo lỗi rõ (không văn giả)
 - [ ] Có key → call thật OK; chương/audit/chức năng mới đủ
 
-## 5. Còn lại / hướng tiếp
+## 5. Đóng gói D1 — Tauri shell (đã triển khai)
 
-- **Tauri** (backlog): 1 binary duy nhất thay 3 process — khởi động nhanh, AV ít quét hơn UPX
+```
+package/tauri/
+├── tauri.conf.json      productName "AI Writer Studio", id com.aiwriter.studio
+├── src/main.rs          shell Rust: spawn sidecar + health poll + tray + cleanup
+├── frontend/index.html  splash tối (đợi backend+web sống → navigate :3300)
+├── icons/icon.ico       icon app/tray (gen tạm — thay asset thật sau)
+├── capabilities/default.json
+└── build.rs + Cargo.toml + package.json (@tauri-apps/cli 2.12)
+```
+
+**Cách chạy** (`src/main.rs`):
+- `spawn_sidecars`: TCP/HTTP probe `127.0.0.1:8765/health` + `127.0.0.1:3300/` — **port đang sống thì tái dùng, không spawn trùng** (crash-kill mở lại vẫn an toàn)
+- `find_res`: tìm `writer-api.exe`/`node.exe`/`web/server.js` cạnh exe → `resources/` → `../..` (dev)
+- Node spawn kèm `PORT=3300`, `HOSTNAME=127.0.0.1`, `CREATE_NO_WINDOW`
+- Splash `index.html` hiển thị ngay; thread nền poll ≤90s → `w.navigate(WEB_URL)`
+- Tray icon: **Mở** / **Thoát**; nút X cửa sổ = **ẩn xuống tray** (giữ phiên viết), Thoát mới exit
+- `RunEvent::Exit` → `kill_sidecars` giết cả 2 con
+- `tauri-plugin-single-instance`: mở lần 2 → focus cửa sổ hiện có
+
+**Build**: `cd package/tauri && npm i && npx tauri build` →
+`target/release/bundle/nsis/AI Writer Studio_0.1.0_x64-setup.exe` (~65MB, currentUser — không cần admin) +
+`bundle/msi/*.msi` (~82MB). Yêu cầu: Rust stable + MSVC Build Tools + WebView2 (installer tự embed bootstrapper).
+
+**Đã verify**: exe release chạy → 2 sidecar lên :8765/:3300, `/health` trả `build_id` + `environment:"production"`, web 200; kill cứng app → mở lại tái dùng sidecar không trùng; dọn sạch process sau test.
+
+## 6. Còn lại / hướng tiếp
+
+- Icon đang là placeholder gen tự động — cần asset thật (đa-size .ico)
+- Sidecar chết khi app **crash** chỉ được dọn nhờ port-probe khi mở lại; bản sau có thể gắn Job Object (KILL_ON_JOB_CLOSE) để OS tự giết con
 - UPX=True hiện tại → rủi ro AV false-positive; nếu bị quét, build lại `upx=False`
-- Port cố định 8765/3300 — nếu cần, thêm probe port trống vào launcher (hiện báo lỗi rõ)
-- Code signing chưa có — Windows SmartScreen sẽ cảnh báo lần đầu
-- Zip ship: thêm `Compress-Archive` cuối script khi chốt quy trình
+- Port cố định 8765/3300 — app trả lỗi rõ khi bị chiếm; chưa auto-probe port trống
+- Code signing chưa có — SmartScreen cảnh báo lần đầu
+- Zip ship bản .bat (phương án A) vẫn giữ: `build_package.ps1` + start/stop.bat

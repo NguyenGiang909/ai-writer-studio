@@ -36,7 +36,14 @@ Thumbs.db
 # packaging artifacts (PyInstaller + assembled bundle)
 backend/build/
 backend/dist/
-package/
+package/*
+# ...nhưng giữ source packaging trong repo
+!package/start.bat
+!package/stop.bat
+!package/build_package.ps1
+!package/tauri/
+package/tauri/target/
+package/tauri/gen/
 
 # agent local session config
 .cursor/
