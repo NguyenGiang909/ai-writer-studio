@@ -7,6 +7,7 @@ Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ tr�
 - `reference/novel-humanizer/` — gói Novel Humanizer v3 gốc (SKILL.md + references + templates + tools + preset); preset `quan-net-di-gioi.md` bản dùng-thật nằm ở `backend/presets/`
 - `archive/` — tài liệu/prototype lịch sử: `DEVELOPMENT_LOG.md`, `IMPLEMENTATION_PLAN(1).md`, `STATUS.session-save-*.md`, site tĩnh v14 (`AI-Writer-Studio/`, `dist-prototype/`), `zips/` (snapshot recovery + humanizer zip gốc)
 - `external/ainovel-cli/` — clone `github.com/voocel/ainovel-cli` (Go) để tham khảo, **gitignored**, không phải code của repo
+- `local-data/` — **gitignored**, data riêng trên máy: `appdata-backups/` chứa `%LOCALAPPDATA%/AIWriterStudio.bak/.bak2` (writer.db + secret.key cũ)
 
 ## Git / GitHub
 
