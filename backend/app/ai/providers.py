@@ -131,6 +131,8 @@ PROVIDER_ENDPOINTS = {
     "kiraai": "https://kiraai.vn/api/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "anthropic": "https://api.anthropic.com",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4",
 }
 
 # Tier năng lực gateway — caller dùng để adapt kích thước prompt.
@@ -141,6 +143,7 @@ PROVIDER_TIERS = {
     "kiraai": "low",
     "openai": "strong", "anthropic": "strong", "gemini": "strong",
     "deepseek": "strong", "openrouter": "strong",
+    "qwen": "strong", "glm": "strong",
 }
 
 def provider_tier(provider: str, override: str | None = None) -> str:

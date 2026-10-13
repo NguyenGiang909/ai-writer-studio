@@ -10,7 +10,7 @@ import { t } from "../../lib/i18n";
 
 async function safe(path: string) { try { return await getJSON(path); } catch { return []; } }
 
-const PROVIDERS = ["openai", "anthropic", "gemini", "openrouter", "deepseek", "kiraai", "custom"];
+const PROVIDERS = ["openai", "anthropic", "gemini", "openrouter", "deepseek", "kiraai", "qwen", "glm", "custom"];
 const TASKS = [
   ["discussion", "Thảo luận"], ["writing", "Viết / mở rộng"], ["extraction", "Trích xuất"],
   ["summarization", "Tóm tắt"], ["review", "Kiểm tra"],
