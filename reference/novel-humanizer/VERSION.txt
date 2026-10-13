@@ -1,0 +1,8 @@
+Novel Humanizer Universal v3.0
+Features: persistent style learning + per-chapter cumulative continuity/logic audit from chapter 1
+Core: SKILL.md
+Guides: references/
+New project templates: templates/
+Optional story-specific preset: presets/quan-net-di-gioi.md
+Structural state helper: tools/novel_state.py
+Important: persistent writes only when the host has authorized file/DB tools.

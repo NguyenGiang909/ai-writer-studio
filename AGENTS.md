@@ -2,6 +2,12 @@
 
 Story OS cho tiểu thuyết dài kỳ: tác giả viết trước, AI hỗ trợ (thảo luận, mở rộng, kiểm tra continuity). **Tác giả là authority** — AI không được tự đổi Canon/prose; mọi gợi ý là bản nháp hoặc qua Review queue.
 
+## Layout repo (một chỗ duy nhất — đã gom hết các bản rải rác)
+
+- `reference/novel-humanizer/` — gói Novel Humanizer v3 gốc (SKILL.md + references + templates + tools + preset); preset `quan-net-di-gioi.md` bản dùng-thật nằm ở `backend/presets/`
+- `archive/` — tài liệu/prototype lịch sử: `DEVELOPMENT_LOG.md`, `IMPLEMENTATION_PLAN(1).md`, `STATUS.session-save-*.md`, site tĩnh v14 (`AI-Writer-Studio/`, `dist-prototype/`), `zips/` (snapshot recovery + humanizer zip gốc)
+- `external/ainovel-cli/` — clone `github.com/voocel/ainovel-cli` (Go) để tham khảo, **gitignored**, không phải code của repo
+
 ## Git / GitHub
 
 - Repo: **public** `https://github.com/NguyenGiang909/ai-writer-studio` (branch `main`)

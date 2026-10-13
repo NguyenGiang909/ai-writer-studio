@@ -1,0 +1,18 @@
+{
+  "schema_version": "3.0",
+  "project_id": "REPLACE_WITH_PROJECT_ID",
+  "version": 1,
+  "defaults": {
+    "language": "vi",
+    "auto_learn_author_preferences": true,
+    "explicit_author_preferences_confirm_immediately": true,
+    "inferred_preferences_remain_candidate": true,
+    "auto_change_previously_approved_chapters": false
+  },
+  "confirmed_rules": [],
+  "candidates": [],
+  "negative_examples": [],
+  "positive_examples": [],
+  "scope_overrides": [],
+  "last_updated": null
+}

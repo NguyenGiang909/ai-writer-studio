@@ -1,0 +1,16 @@
+{
+  "schema_version": "3.0",
+  "project_id": "REPLACE_WITH_PROJECT_ID",
+  "version": 1,
+  "canon_locked": [],
+  "canon_working": [],
+  "proposed_facts": [],
+  "events": [],
+  "character_states": [],
+  "inventory_transactions": [],
+  "knowledge_events": [],
+  "open_threads": [],
+  "author_overrides": [],
+  "stale_chapters": [],
+  "last_updated": null
+}

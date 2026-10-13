@@ -50,3 +50,6 @@ package/tauri/gen/
 
 # demo video webm gốc (nặng — giữ local); mp4 nén vẫn commit
 demo/video/*.webm
+
+# third-party reference clones (not our code)
+external/

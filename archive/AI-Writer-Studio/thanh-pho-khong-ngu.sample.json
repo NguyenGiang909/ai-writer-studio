@@ -1,0 +1,30 @@
+{
+  "schema_version": "ai-writer-studio.sample.v1",
+  "sample_only": true,
+  "project": {
+    "id": "project-thanh-pho-khong-ngu",
+    "title": "Thành Phố Không Ngủ",
+    "genre": "Kỳ ảo đô thị",
+    "status": "writing",
+    "premise": "Một nhân viên lưu trữ phát hiện thành phố thay đổi cấu trúc mỗi đêm, và những người nhận ra sự thay đổi sẽ dần bị xóa khỏi ký ức tập thể.",
+    "display_stats": {"chapters": 13, "word_count_approx": 31800, "open_threads": 8}
+  },
+  "author_decisions": [
+    {"id": "AD-018", "text": "An còn sống đến hết Quyển I.", "canon": true},
+    {"id": "AD-021", "text": "Phòng số 7 không phải cổng thời gian.", "canon": true}
+  ],
+  "characters": [
+    {"id": "minh", "name": "Minh Trần", "role": "POV chính", "appears_in_chapters": 12},
+    {"id": "an", "name": "An Vũ", "role": "Mất tích", "knowledge_limited": true},
+    {"id": "le", "name": "Bà Lệ", "role": "Chủ khách sạn", "reliability": "chưa rõ"}
+  ],
+  "world": [
+    {"id": "hoai-vu", "name": "Khách sạn Hoài Vũ", "description": "Tòa nhà 6 tầng, kiến trúc thay đổi sau 02:00. Hành lang Đông thuộc tầng 3."},
+    {"id": "dong-thanh", "name": "Ga tàu Đông Thành", "description": "Đóng cửa từ Sự kiện Mất Điện. Lối hầm số 4 vẫn hoạt động."}
+  ],
+  "abilities": [{"name": "Nhận thức sai lệch", "rule": "Minh nhớ được tối đa ba thay đổi của thành phố sau mỗi chu kỳ ngủ.", "cost": "Mỗi ký ức giữ lại làm mất một ký ức cá nhân có trọng lượng tương đương.", "canon": true}],
+  "structure": [{"volume": "Quyển I", "arcs": [{"title": "Hồi 2", "chapters": [{"number": 10, "title": "Dưới ga tàu", "status": "done", "pov": "minh", "scene_count": 3}, {"number": 11, "title": "Người đưa thư", "status": "done", "pov": "minh", "scene_count": 4}, {"number": 12, "title": "Cánh cửa số 7", "status": "draft", "pov": "minh", "scenes": [{"number": 1, "title": "Sảnh khách sạn", "type": "thiết lập"}, {"number": 2, "title": "Hành lang Đông", "type": "căng thẳng", "story_time": "Đêm 43 · 02:10", "body": "Minh dừng lại trước cánh cửa cuối hành lang. Con số bảy bằng đồng đã xỉn màu, nhưng vết xước mới quanh ổ khóa vẫn còn ánh lên dưới ngọn đèn chập chờn.\n\nCậu nhớ lời bà chủ quán: tầng ba không có phòng số bảy. Có lẽ bà đã nói dối. Hoặc có lẽ, từ đêm qua, tòa nhà này đã tự mọc thêm một căn phòng.\n\nCậu đặt chiếc chìa khóa bạc vào ổ. Nó vừa khít, nhưng không chịu xoay.", "author_brief": ["Minh nghe tiếng nhạc hộp phía trong", "Dùng chìa khóa của An nhưng không mở được", "Nhìn thấy bóng người ở cuối hành lang", "Kết cảnh bằng tiếng gọi tên Minh từ sau cánh cửa"]}, {"number": 3, "title": "Sau cánh cửa", "status": "planned"}]}, {"number": 13, "title": "Chưa đặt tên", "status": "planned", "scene_count": 0}]}, {"title": "Hồi 3 · Thành phố lệch", "chapters": []}]}],
+  "threads": [{"title": "Chìa khóa bạc của An", "opened_at": "Chương 4", "last_mentioned": "Chương 12", "status": "open"}, {"title": "Tiếng nhạc hộp", "opened_at": "Chương 1", "status": "open"}, {"title": "Người đưa thư không có bóng", "opened_at": "Chương 11", "status": "open"}],
+  "continuity_examples": [{"type": "pov_knowledge", "text": "Minh chưa được biết chìa khóa thuộc về An tại thời điểm Đêm 43.", "needs_author_review": true}, {"type": "travel_time", "text": "Thời gian từ ga tàu đến khách sạn có thể thiếu 12 phút.", "needs_author_review": true}, {"type": "item_detail", "text": "Chìa khóa được mô tả màu đen ở Chương 4, màu bạc ở Chương 12.", "needs_author_review": true}],
+  "style": {"voice": "Ngôi ba giới hạn, bám sát nhận thức Minh. Câu văn tiết chế; không giải thích nỗi sợ thay nhân vật.", "avoid": ["Không chuyển POV trong cùng cảnh", "Hạn chế trạng từ cảm xúc"]}
+}
