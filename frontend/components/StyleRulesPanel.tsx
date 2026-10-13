@@ -161,7 +161,7 @@ export default function StyleRulesPanel({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="card">
+    <div className="card style-rules-panel">
       <h3>{t(lang, "AI đã học được gì — gu văn tác giả")}</h3>
       <p className="subtle">
         {t(lang, "Luật 'đang áp dụng' được tự đưa vào mọi prompt viết/sửa. Luật 'chờ duyệt' là đề xuất AI rút ra từ cách bạn sửa — chỉ có hiệu lực sau khi bạn bấm Duyệt. {c} đang áp, {w} chờ duyệt.",
@@ -187,11 +187,11 @@ export default function StyleRulesPanel({ projectId }: { projectId: string }) {
       <div className="dash-head" style={{ marginTop: 18 }}>
         <div><div className="eyebrow">{t(lang, "Dạy AI")}</div><h1 style={{ fontSize: 18 }}>{t(lang, "Dạy gu mới")}</h1></div>
       </div>
-      <form onSubmit={teach} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input className="input" style={{ flex: 2, minWidth: 260 }} value={ins}
+      <form onSubmit={teach} className="style-teach-form">
+        <input className="input" aria-label={t(lang,"Dạy gu mới")} value={ins}
           onChange={(e) => setIns(e.target.value)}
           placeholder={t(lang, "VD: Đoạn trần thuật gộp 3-8 câu một đoạn, không một câu một dòng")} />
-        <select className="input" value={insStr} onChange={(e) => setInsStr(e.target.value)} style={{ minWidth: 120 }}>
+        <select className="input" aria-label={t(lang,"Mức độ áp dụng")} value={insStr} onChange={(e) => setInsStr(e.target.value)}>
           <option value="HARD">{t(lang, "BẮT BUỘC")}</option>
           <option value="PREFERRED">{t(lang, "Ưu tiên")}</option>
           <option value="AVOID">{t(lang, "Nên tránh")}</option>
@@ -203,7 +203,7 @@ export default function StyleRulesPanel({ projectId }: { projectId: string }) {
       <details style={{ marginTop: 12 }}>
         <summary>{t(lang, "Học từ bản sửa — dán đoạn gốc + đoạn bạn đã sửa, AI rút luật chờ duyệt")}</summary>
         <form onSubmit={learnDiff} style={{ display: "grid", gap: 8, marginTop: 8 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div className="style-diff-fields">
             <textarea className="input" rows={5} value={orig} onChange={(e) => setOrig(e.target.value)}
               placeholder={t(lang, "Đoạn gốc (bản AI / bản cũ)")} />
             <textarea className="input" rows={5} value={rev} onChange={(e) => setRev(e.target.value)}

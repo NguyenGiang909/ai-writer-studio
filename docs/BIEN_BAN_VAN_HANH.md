@@ -145,3 +145,38 @@ Cập nhật: **run `27146f7a` xong — 69 chương / 468 cảnh / 1.521.240 ký
 - `npx tsc --noEmit` sạch
 - Runtime project thật: PATCH run paused↔on/off OK; PUT cast 422 id giả + 200 dedupe; deep-check POST trả job trong 0.2s, poll thấy `1/4`; stale job được đánh failed; `/continuity/check` trả LOCATION_DRIFT mới
 - Search `que kem` 3 hits, `hôn` 20 hits (không còn ăn `khôn`), `mục` 69 hits
+
+## 2026-10-13 — Biên bản chỉnh UX/UI các trang Năng lực, Phong cách và Continuity
+
+### Phạm vi
+
+Chỉnh giao diện theo ảnh người dùng cung cấp; giữ nguyên dữ liệu, API và luồng xử lý hiện có.
+
+### Thay đổi
+
+- **Năng lực:** chuyển thẻ sang bố cục lưới co giãn; tách tên và thao tác khỏi phần mô tả; trình bày `Không thể`, `Giới hạn`, `Cái giá` và `Điều kiện/đối sách` thành các mục dễ quét, hỗ trợ nội dung dài và màn hình hẹp.
+- **Phong cách:** thay JSON thô bằng các trường có nhãn dễ đọc; vẫn hiển thị an toàn nội dung lồng nhau và văn bản không phải JSON. Đồng bộ chiều cao, màu nền, viền và trạng thái focus của ô nhập/chọn; bố trí lại biểu mẫu dạy AI và phần so sánh để không ép hẹp trên mobile.
+- **Continuity:** sửa phần hố ưu tiên để tiêu đề, số lượng và liên kết quản lý tách bạch; chỉ hiện thanh này khi có hố cần xử lý. Bố trí tổng quan thành hai cột cân đối, xếp một cột ở màn hình hẹp; chuyển Nguyên tắc thành khối thu gọn để giảm khoảng trống và giữ phần kiểm tra chính gọn hơn.
+- Bổ sung nhãn truy cập cho các trường trong biểu mẫu phong cách và bản dịch cho nhãn mới.
+
+### Tệp chính
+
+- `frontend/app/globals.css`
+- `frontend/app/projects/[projectId]/abilities/page.tsx`
+- `frontend/app/projects/[projectId]/style/page.tsx`
+- `frontend/app/projects/[projectId]/review/page.tsx`
+- `frontend/components/StyleInstructions.tsx`
+- `frontend/components/StyleRulesPanel.tsx`
+- `frontend/lib/i18n.ts`
+
+### Kiểm tra đã thực hiện
+
+- TypeScript: `npx tsc --noEmit --incremental false` — đạt.
+- Rà bố cục ba trang ở 5 độ rộng (375, 768, 1280, 1440, 1920 px) và cả giao diện sáng/tối: 30 tổ hợp, không tràn ngang.
+- Kiểm tra trực tiếp việc lưu luật phong cách và hiển thị thanh hố ưu tiên khi có dữ liệu.
+- `git diff --check` — đạt.
+
+### Ghi chú
+
+Đây là chỉnh sửa trình bày và khả năng sử dụng; không đổi quyền quyết định Canon hay tự động áp dụng đề xuất AI.
+

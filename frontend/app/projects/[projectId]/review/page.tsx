@@ -34,21 +34,21 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
   }).filter((a: any) => a.count > 0);
   const done = resolved.filter((s: any) => s.status !== "pending");
   const count = continuity.count ?? (continuity.issues ?? []).length ?? 0;
+  const priorityThreads = threads.filter((th:any)=>!["RESOLVED","ABANDONED"].includes(th.status)&&(th.must_resolve||th.important)).sort((a:any,b:any)=>Number(!!b.must_resolve)-Number(!!a.must_resolve));
 
   return (
-    <main className="main"><div className="dashboard">
+    <main className="main"><div className="dashboard review-page">
       <div className="dash-head">
         <div>
           <div className="eyebrow">{t(lang, "Báo cáo tư vấn")}</div>
           <h1>Continuity</h1>
         </div>
       </div>
-      <div className="notice priority-review">
-        <b>{t(lang,"Hố ưu tiên chưa xử lý")}</b>
-        {threads.filter((th:any)=>!["RESOLVED","ABANDONED"].includes(th.status)&&(th.must_resolve||th.important)).sort((a:any,b:any)=>Number(!!b.must_resolve)-Number(!!a.must_resolve)).map((th:any)=><p key={th.id}>{th.must_resolve?t(lang,"Hố bắt buộc lấp"):t(lang,"Hố quan trọng")}: <b>{th.title}</b></p>)}
-        <Link href={`/projects/${projectId}/threads`}>{t(lang,"Quản lý hố ưu tiên")} →</Link>
-      </div>
-      <div className="grid">
+      {priorityThreads.length>0 && <section className="notice priority-review">
+        <div className="priority-review-head"><b>{t(lang,"Hố ưu tiên chưa xử lý")} · {priorityThreads.length}</b><Link href={`/projects/${projectId}/threads`}>{t(lang,"Quản lý hố ưu tiên")} →</Link></div>
+        <ul>{priorityThreads.map((th:any)=><li key={th.id}><span>{th.must_resolve?t(lang,"Hố bắt buộc lấp"):t(lang,"Hố quan trọng")}</span><b>{th.title}</b></li>)}</ul>
+      </section>}
+      <div className="grid review-overview">
         <div className="card">
           <h3>{t(lang, "{n} điểm cần xem", { n: count })}</h3>
           <p className="subtle">{t(lang, "Kiểm tra tự động, chỉ đọc — không tự sửa bản thảo.")}</p>
@@ -57,14 +57,14 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
         <ChapterDeepCheck projectId={projectId} chapters={chapters ?? []}
           allChapters={allChapters.map((c: any) => ({ id: c.id, title: c.title, order_index: c.order_index }))}
           arcs={arcs} />
-        <div className="card">
-          <h3>{t(lang, "Nguyên tắc")}</h3>
+
+      </div>
+      <details className="review-principles"><summary>{t(lang,"Nguyên tắc")}</summary>
           <p>
             {t(lang, "Báo cáo chỉ nêu bằng chứng và tác động có thể có. Tác giả quyết định sửa, bỏ qua hoặc tạo Retcon.")}{" "}
             {t(lang, "Gợi ý được duyệt sẽ trở thành")} <b>{t(lang, "Suy ra (INFERRED)")}</b> — {t(lang, "chưa phải")} <b>CANON</b>.
           </p>
-        </div>
-      </div>
+      </details>
 
       <div className="dash-head" style={{ marginTop: 26 }}>
         <div>

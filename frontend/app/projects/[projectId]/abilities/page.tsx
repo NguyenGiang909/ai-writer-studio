@@ -26,7 +26,7 @@ export default async function AbilitiesPage({ params }: { params: Promise<{ proj
   ];
 
   return (
-    <main className="main"><div className="dashboard">
+    <main className="main"><div className="dashboard abilities-page">
       <div className="dash-head">
         <div>
           <div className="eyebrow">{t(lang, "Rules engine")}</div>
@@ -37,21 +37,22 @@ export default async function AbilitiesPage({ params }: { params: Promise<{ proj
           <PostForm endpoint={`${base}/abilities`} submitLabel={t(lang, "Năng lực")} triggerClass="btn primary" triggerLabel={t(lang, "＋ Năng lực")} fields={abilityFields({}).map(({ defaultValue, ...f }) => f)} />
         </div>
       </div>
-      <div className="grid" id="ability-list">
+      <div className="grid ability-grid" id="ability-list">
         {abilities.map((a: any) => (
-          <div key={a.id} className="card" data-q={`${a.name} ${a.ability_type ?? ""} ${a.can_do ?? ""}`}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
+          <div key={a.id} className="card ability-card" data-q={`${a.name} ${a.ability_type ?? ""} ${a.can_do ?? ""}`}>
+            <div className="ability-card-head">
               <h3 style={{ margin: 0 }}>{a.name}</h3>
-              <span style={{ display: "inline-flex", gap: 4 }}>
+              <span className="ability-card-actions">
                 <PostForm endpoint={`${base}/abilities/${a.id}`} method="patch" submitLabel={t(lang, "Lưu")} triggerClass="btn ghost sm" triggerLabel={t(lang, "Sửa")} fields={abilityFields(a)} />
                 <ActionButton endpoint={`${base}/abilities/${a.id}`} method="delete" label="✕" confirm={t(lang, "Xoá {name}?", { name: a.name })} />
               </span>
             </div>
-            {a.can_do && <p>{a.can_do}</p>}
-            {a.cannot_do && <p className="subtle">{t(lang, "Không thể:")} {a.cannot_do}</p>}
-            {a.limits && <span className="pill">{t(lang, "Giới hạn:")} {a.limits}</span>}
-            {a.cost && <span className="pill warn">{t(lang, "Cái giá:")} {a.cost}</span>}
-            {a.ability_type && <small className="subtle" style={{ display: "block", marginTop: 8 }}>{cap(a.ability_type)}</small>}
+            {a.ability_type && <small className="ability-type">{cap(a.ability_type)}</small>}
+            {a.can_do && <p className="ability-description">{a.can_do}</p>}
+            <dl className="ability-details">{([
+              ["cannot_do","Không thể"],["limits","Giới hạn"],["cost","Cái giá"],
+              ["conditions","Điều kiện"],["counters","Khắc chế"],
+            ] as const).filter(([key])=>a[key]).map(([key,label])=><div key={key} className={key==="cost"?"ability-cost":""}><dt>{t(lang,label)}</dt><dd>{a[key]}</dd></div>)}</dl>
           </div>
         ))}
         {!abilities.length && <div className="card"><p className="subtle">{t(lang, "Chưa có năng lực / quy tắc nào.")}</p></div>}

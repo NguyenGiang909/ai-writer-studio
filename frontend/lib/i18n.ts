@@ -14,6 +14,9 @@ export function t(lang: Lang | undefined, vi: string, params?: Record<string, st
 }
 
 const EN: Record<string, string> = {
+  "Mức độ áp dụng":"Rule strength",
+  "Thì kể":"Tense",
+  "Giọng điệu":"Tone",
   "Gửi Review để duyệt sau. Bản sửa sẽ thay đúng đoạn gốc khi duyệt; nếu văn gốc đã đổi, ứng dụng sẽ yêu cầu kiểm tra lại.":"Send to Review for later approval. Revisions replace the original passage; changed originals require another check.",
   "Không lưu được bộ nhớ nháp trên trình duyệt. Hãy sao chép bản nháp trước khi rời trang.":"Unable to save draft memory in this browser. Copy the draft before leaving.",
   "Bản nháp AI · đã nhớ trên trình duyệt":"AI draft · saved in this browser",

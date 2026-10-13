@@ -1,5 +1,6 @@
 import { getJSON } from "../../../../lib/api";
 import PostForm from "../../../../components/PostForm";
+import StyleInstructions from "../../../../components/StyleInstructions";
 import StyleRulesPanel from "../../../../components/StyleRulesPanel";
 import { scopeLabel } from "../../../../lib/labels";
 import { getLang } from "../../../../lib/lang-server";
@@ -16,7 +17,7 @@ export default async function StylePage({ params }: { params: Promise<{ projectI
   ]);
 
   return (
-    <main className="main"><div className="dashboard">
+    <main className="main"><div className="dashboard style-page">
       <div className="dash-head">
         <div>
           <div className="eyebrow">{t(lang, "Voice guide")}</div>
@@ -34,7 +35,7 @@ export default async function StylePage({ params }: { params: Promise<{ projectI
         {profiles.map((p: any) => (
           <div key={p.id} className="card">
             <h3>{p.name}</h3>
-            <p style={{ whiteSpace: "pre-wrap" }}>{p.instructions}</p>
+            <StyleInstructions text={p.instructions} lang={lang} />
             <span className="pill">{scopeLabel(p.scope_type, lang)}{p.active ? "" : ` · ${t(lang, "tắt")}`}</span>
           </div>
         ))}
