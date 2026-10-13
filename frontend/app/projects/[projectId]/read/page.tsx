@@ -47,7 +47,7 @@ export default async function ReadPage({
     scenes = ch.scenes ?? [];
   }
   const words = scenes.reduce(
-    (n: number, s: any) => n + ((s.prose || "").trim() ? (s.prose as string).trim().split(/\s+/).length : 0), 0);
+    (n: number, s: any) => n + ((s.prose || "").trim() ? (s.prose as string).trim().split(/\s+/).length : (Number(s.words) || 0)), 0);
 
   const opts = chapters.map((c: any) => ({ value: c.id, label: c.title }));
 

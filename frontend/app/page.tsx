@@ -26,7 +26,7 @@ export default async function Home() {
         getJSON(`/api/v1/projects/${p.id}/threads`).catch(() => []),
       ]);
       const w = tree.chapters.flatMap((c: any) => c.scenes)
-        .reduce((n: number, s: any) => n + (s.prose?.trim() ? s.prose.trim().split(/\s+/).length : 0), 0);
+        .reduce((n: number, s: any) => n + (Number(s.words) || 0), 0);
       stats[p.id] = {
         chapters: tree.chapters.length,
         words: w >= 1000 ? `${(w / 1000).toFixed(1).replace(".", ",")}k` : String(w),
