@@ -104,6 +104,18 @@ export default async function Settings() {
             <b>{t(lang, taskLabel(p.task))}</b>
             <span className="routing-model"><span>{p.provider}</span><code>{p.model}</code></span>
             {p.project_id && <small className="routing-scope">{t(lang, " · dự án {id}", { id: p.project_id.slice(0, 8) })}</small>}
+            <div className="routing-actions">
+              <PostForm endpoint={`/api/v1/account/model-preferences/${p.id}`} method="patch" submitLabel={t(lang, "Lưu")} fields={[
+                { name: "task", label: t(lang, "Tác vụ"), type: "select", options: TASKS.map((o) => ({ ...o, label: t(lang, o.label) })), defaultValue: p.task },
+                { name: "provider", label: t(lang, "Nhà cung cấp"), type: "select", options: PROVIDERS.map((pr) => ({ value: pr, label: pr })), defaultValue: p.provider },
+                { name: "model", label: "Model", required: true, defaultValue: p.model },
+                { name: "project_id", label: t(lang, "Dự án (tuỳ chọn)"), type: "select", options: [
+                  { value: "", label: t(lang, "— mặc định tài khoản —") },
+                  ...projects.map((proj: any) => ({ value: proj.id, label: proj.name })),
+                ], defaultValue: p.project_id || "" },
+              ]} triggerLabel={t(lang, "Sửa")} />
+              <ActionButton endpoint={`/api/v1/account/model-preferences/${p.id}`} method="delete" label={t(lang, "Xoá")} />
+            </div>
           </div>
         ))}
         <PostForm endpoint="/api/v1/account/model-preferences" submitLabel={t(lang, "Quy tắc")} fields={[
